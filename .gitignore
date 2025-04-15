@@ -1,2 +1,5 @@
 # Ignore the received_data folder
 received_data/
+__pycache__/
+# Ignore all .pyc files
+*.pyc
