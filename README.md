@@ -5,7 +5,10 @@ This is a repository of example scripts for interaction with AMQP and EDR servic
 
 ## AMQP 1.0 client
 
-[amqp_client_example.py](https://github.com/iblsoft/swimdemo/blob/main/amqp_client_example.py) is a simple AMQP 1.0 client based on [Apache Qpid Proton](https://github.com/apache/qpid-proton) (AMQP messaging client).
+[amqp_client_example.py](https://github.com/iblsoft/swimdemo/blob/main/amqp_client_example.py) is a simple AMQP 1.0 client based on [Apache Qpid Proton](https://github.com/apache/qpid-proton) (AMQP messaging client). The only package that needs to be installed on top of what is provided in the Python standard library is `python-qpid-proton`:
+```
+python -m pip install python-qpid-proton
+```
 
 For details regarding the AMQP message and application properties please [read our documentation](https://swim.iblsoft.com/swimdemo/latest/SWIM-Weather-Public-Demonstration/AMQP-Data-Subscriptions/) on the AMQP subscription details.
 
@@ -16,6 +19,28 @@ The example client behaves like this:
   - Displays the AMQP message properties and the custom application properties
   - If an IWXXM payload is present (with or without gzip compression), it will uncompress the payload, extract the basic issue time, observation time, validity, airspace and aerodrome information from the report. This is mostly to show how to access the XML and verify that the values from the XML match the AMQP application properties correctly.
   - The uncompressed IWXXM payloads are stored into `received_data` subfolder with the AMQP message's subject as the file name.
+
+### Command line options
+
+You can override the default AMQP URL, topic, CA certificate, and output folder through the command line interface:
+```
+c:\Python312\python.exe amqp_client_example.py --help
+usage: amqp_client_example.py [-h] [--output-folder OUTPUT_FOLDER] [--url URL] [--topic TOPIC] [--ca-cert CA_CERT]
+
+IBL MET-SWIM AMQP Client Example
+
+options:
+  -h, --help            show this help message and exit
+  --output-folder OUTPUT_FOLDER, -o OUTPUT_FOLDER
+                        Folder to store received message data (default: 'received_data')
+  --url URL, -u URL     AMQPS URL to connect to (default: 'amqps://amqp.swim.iblsoft.com:5672')
+  --topic TOPIC, -t TOPIC
+                        AMQP topic/queue to subscribe to (default is the wildcard topic for all OPMET data: 'origin.a.wis2.com-
+                        ibl.data.core.weather.aviation.*')
+  --ca-cert CA_CERT, -c CA_CERT
+                        Path to the CA certificate file to override the default HARICA staging root certificate (default:
+                        'C:\Projects\SWIM\swimdemo\HARICA-TLS-Root-2021-RSA.pem').
+```
 
 ### Example output
 ```
@@ -63,26 +88,3 @@ The client will attempt to verify the server's authenticity using the HARICA sta
   - For Linux and other non-Windows platforms where Qpid Proton is using OpenSSL the HARICA certificate is provided in a .pem file.
   - If the verification of the server's certificate fails for any reason, the client will disable the verification and reconnect.
  
-### Command line options
-
-You can override the default AMQP URL, topic, CA certificate, and output folder through the command line interface:
-```
-c:\Python312\python.exe amqp_client_example.py --help
-usage: amqp_client_example.py [-h] [--output-folder OUTPUT_FOLDER] [--url URL] [--topic TOPIC] [--ca-cert CA_CERT]
-
-IBL MET-SWIM AMQP Client Example
-
-options:
-  -h, --help            show this help message and exit
-  --output-folder OUTPUT_FOLDER, -o OUTPUT_FOLDER
-                        Folder to store received message data (default: 'received_data')
-  --url URL, -u URL     AMQPS URL to connect to (default: 'amqps://amqp.swim.iblsoft.com:5672')
-  --topic TOPIC, -t TOPIC
-                        AMQP topic/queue to subscribe to (default is the wildcard topic for all OPMET data: 'origin.a.wis2.com-
-                        ibl.data.core.weather.aviation.*')
-  --ca-cert CA_CERT, -c CA_CERT
-                        Path to the CA certificate file to override the default HARICA staging root certificate (default:
-                        'C:\Projects\SWIM\swimdemo\HARICA-TLS-Root-2021-RSA.pem').
-```
-
-
