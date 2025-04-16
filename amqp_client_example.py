@@ -51,7 +51,7 @@ class AMQPClient(MessagingHandler):
                 # On Windows, rely on the certificate imported into the Windows certificate store
                 # Users need to import the HARICA root certificate into certmgr.msc
                 pass
-        except:
+        except Exception as e:
             print(f"Could not create SSL domain, is Qpid Proton compiled with SSL support?: {e}")
             traceback.print_exc()
             sys.exit(1)
@@ -236,13 +236,10 @@ if __name__ == '__main__':
     ca_cert_path = args.ca_cert
     username = getpass.getuser()  # Get the current user's name
     client_id = f"swimdemo-amqp-client-example-{username}"  # Append username to client ID
-    try:
-        # Enable frame-level tracing by setting trace=1
-        Container(
-            AMQPClient(url, topic, outputFolderPath=s_outputFolderPath, ca_cert_path=ca_cert_path), 
-            container_id=client_id, 
-            trace=1
-        ).run()
-    except Exception as e:
-        print("Error during container run:", e)
-        sys.exit(1)
+
+    # Enable frame-level tracing by setting trace=1
+    Container(
+        AMQPClient(url, topic, outputFolderPath=s_outputFolderPath, ca_cert_path=ca_cert_path), 
+        container_id=client_id, 
+        trace=1
+    ).run()
