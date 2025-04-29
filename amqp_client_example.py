@@ -22,6 +22,7 @@ import traceback
 import os, os.path
 import platform
 import argparse
+import ssl  # Import to check the SSL backend
 from datetime import datetime, timezone
 from proton import ConnectionException, SSLDomain, SASL
 from proton.handlers import MessagingHandler
@@ -29,43 +30,58 @@ from proton.reactor import Container
 from iwxxm_utils import extractReportInformation
 
 class AMQPClient(MessagingHandler):
-    def __init__(self, url, topic, outputFolderPath=None, ca_cert_path=None):
+    def __init__(self, url, topic, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None):
         super(AMQPClient, self).__init__()
         self.url = url
         self.topic = topic
         self.outputFolderPath = outputFolderPath
         self.ca_cert_path = ca_cert_path
+        self.client_cert_path = client_cert_path
+        self.client_key_path = client_key_path
+        self.client_cert_password = client_cert_password
+        self.using_schannel = self.is_using_schannel()
+        if self.using_schannel:
+            print("Qpid Proton SSL backend: SChannel (Windows). Certificates must be imported into the Windows Certificate Store!")
+        else:
+            print("Qpid Proton SSL backend: OpenSSL.")
         if not os.path.exists(self.outputFolderPath):
             os.makedirs(self.outputFolderPath)
 
-    def on_start(self, event):
-        # Configure SSL for the connection
-        try:
-            ssl_domain = SSLDomain(SSLDomain.MODE_CLIENT)
-            # Enable peer authentication (verify the broker's certificate)
-            ssl_domain.set_peer_authentication(SSLDomain.VERIFY_PEER_NAME)
-            if platform.system() != "Windows":
-                # Use the provided CA certificate path or default to the HARICA root certificate
-                ssl_domain.set_trusted_ca_db(self.ca_cert_path)
-            else:
-                # On Windows, rely on the certificate imported into the Windows certificate store
-                # Users need to import the HARICA root certificate into certmgr.msc
-                pass
-        except Exception as e:
-            print(f"Could not create SSL domain, is Qpid Proton compiled with SSL support?: {e}")
-            traceback.print_exc()
-            sys.exit(1)
+    def is_using_schannel(self):
+        """Check if Qpid Proton is using SChannel as the SSL backend."""
+        if platform.system() == "Windows":
+            try:
+                # Attempt to create an SSLDomain and set a trusted CA database
+                ssl_domain = SSLDomain(SSLDomain.MODE_CLIENT)
+                ssl_domain.set_trusted_ca_db("dummy_path")
+                return False  # If no exception, OpenSSL is being used
+            except Exception as e:
+                if "SSL" in str(e) or "not supported" in str(e):
+                    return True  # SChannel is being used
+        return False  # Default to OpenSSL for non-Windows platforms
 
+    def on_start(self, event):
         try:
-            # First try with peer verification enabled
-            ssl_domain.set_peer_authentication(SSLDomain.VERIFY_PEER_NAME)
-            #ssl_domain.set_peer_authentication(SSLDomain.ANONYMOUS_PEER)
+            if self.url.startswith("amqps"):
+                ssl_domain = SSLDomain(SSLDomain.MODE_CLIENT)
+                ssl_domain.set_peer_authentication(SSLDomain.VERIFY_PEER_NAME)
+
+                if not self.using_schannel:
+                    # OpenSSL is being used, set the certificate details if provided
+                    if self.ca_cert_path:
+                        ssl_domain.set_trusted_ca_db(self.ca_cert_path)
+                    if self.client_cert_path:
+                        ssl_domain.set_credentials(self.client_cert_path, self.client_key_path, self.client_cert_password)
+            else:
+                ssl_domain = None  # No SSL for plain AMQP connections
+
             connection = event.container.connect(
                 self.url,
                 ssl_domain=ssl_domain,
             )
             self.receiver = event.container.create_receiver(connection, source=self.topic)
             print("Receiver created on:", self.url)
+            print("Waiting for messages...")
         except Exception as e:
             print("Error creating receiver:", e)
             traceback.print_exc()
@@ -162,6 +178,13 @@ class AMQPClient(MessagingHandler):
         else:
             print("No payload found in the message.")
 
+    def on_connection_opened(self, event):
+        print("Connection successfully opened.")
+
+    def on_connection_closed(self, event):
+        print("Connection closed by the server.")
+        sys.exit(0)
+
     def on_transport_error(self, event):
         print("Transport error:", event.transport.condition)
         if "TLS certificate verification error" in str(event.transport.condition):
@@ -214,7 +237,8 @@ if __name__ == '__main__':
     parser.add_argument(
         '--url', '-u', 
         default="amqps://amqp.swim.iblsoft.com:5672", 
-        help="AMQPS URL to connect to (default: 'amqps://amqp.swim.iblsoft.com:5672')"
+        help="AMQP(S) URL to connect to. Use 'amqps://' for SSL connections or 'amqp://' for unencrypted "
+         "connections (default: 'amqps://amqp.swim.iblsoft.com:5672')."
     )
     parser.add_argument(
         '--topic', '-t', 
@@ -225,7 +249,23 @@ if __name__ == '__main__':
     parser.add_argument(
         '--ca-cert', '-c', 
         default=default_ca_cert_path,
-        help=f"Path to the CA certificate file to override the default HARICA staging root certificate (default: '{default_ca_cert_path}')."
+        help=f"Path to the CA certificate file to override the default HARICA staging root certificate (default: '{default_ca_cert_path}'). "
+             "On Windows, the certificate must be added to 'Trusted Root Certification Authorities' "
+             "using certmgr.msc."
+    )
+    parser.add_argument(
+        '--client-cert', 
+        help="Optional. Path to the client certificate file for mutual TLS authentication. "
+        "If not provided, only the server's authenticity will be verified."
+    )
+    parser.add_argument(
+        '--client-key', 
+        help="Optional. Path to the client private key file for mutual TLS authentication. "
+        "If not provided, only the server's authenticity will be verified."
+    )
+    parser.add_argument(
+        '--client-cert-password', 
+        help="Optional. Password for the client certificate file (e.g., .p12 file) used for mutual TLS authentication."
     )
     args = parser.parse_args()
 
@@ -234,12 +274,25 @@ if __name__ == '__main__':
     url = args.url
     topic = args.topic
     ca_cert_path = args.ca_cert
+    client_cert_path = args.client_cert
+    client_key_path = args.client_key
+    client_cert_password = args.client_cert_password
     username = getpass.getuser()  # Get the current user's name
     client_id = f"swimdemo-amqp-client-example-{username}"  # Append username to client ID
-
-    # Enable frame-level tracing by setting trace=1
-    Container(
-        AMQPClient(url, topic, outputFolderPath=s_outputFolderPath, ca_cert_path=ca_cert_path), 
-        container_id=client_id, 
-        trace=1
-    ).run()
+    try:
+        # Enable frame-level tracing by setting trace=1
+        Container(
+            AMQPClient(
+                url, topic, 
+                outputFolderPath=s_outputFolderPath, 
+                ca_cert_path=ca_cert_path, 
+                client_cert_path=client_cert_path, 
+                client_key_path=client_key_path, 
+                client_cert_password=client_cert_password
+            ), 
+            container_id=client_id, 
+            trace=1
+        ).run()
+    except Exception as e:
+        print("Error during container run:", e)
+        sys.exit(1)
