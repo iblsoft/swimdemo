@@ -5,10 +5,7 @@ This is a repository of example scripts for interaction with AMQP and EDR servic
 
 ## AMQP 1.0 client
 
-[amqp_client_example.py](https://github.com/iblsoft/swimdemo/blob/main/amqp_client_example.py) is a simple AMQP 1.0 client based on [Apache Qpid Proton](https://github.com/apache/qpid-proton) (AMQP messaging client). The only package that needs to be installed on top of what is provided in the Python standard library is `python-qpid-proton`:
-```
-python -m pip install python-qpid-proton
-```
+[amqp_client_example.py](https://github.com/iblsoft/swimdemo/blob/main/amqp_client_example.py) is a simple AMQP 1.0 client based on [Apache Qpid Proton](https://github.com/apache/qpid-proton) (AMQP messaging client).
 
 For details regarding the AMQP message and application properties please [read our documentation](https://swim.iblsoft.com/swimdemo/latest/SWIM-Weather-Public-Demonstration/AMQP-Data-Subscriptions/) on the AMQP subscription details.
 
@@ -19,6 +16,16 @@ The example client behaves like this:
   - Displays the AMQP message properties and the custom application properties
   - If an IWXXM payload is present (with or without gzip compression), it will uncompress the payload, extract the basic issue time, observation time, validity, airspace and aerodrome information from the report. This is mostly to show how to access the XML and verify that the values from the XML match the AMQP application properties correctly.
   - The uncompressed IWXXM payloads are stored into `received_data` subfolder with the AMQP message's subject as the file name.
+
+### Dependencies
+The only package that needs to be installed on top of what is provided in the Python standard library is `python-qpid-proton`:
+```
+python -m pip install python-qpid-proton
+```
+On Ubuntu Linux you should install from your distribution using:
+```
+$ sudo apt install python3-qpid-proton
+```
 
 ### Command line options
 
