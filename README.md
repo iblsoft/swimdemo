@@ -33,6 +33,8 @@ You can override the default AMQP URL, topic, CA certificate, and output folder 
 ```
 c:\Python312\python.exe amqp_client_example.py --help
 usage: amqp_client_example.py [-h] [--output-folder OUTPUT_FOLDER] [--url URL] [--topic TOPIC] [--ca-cert CA_CERT]
+                              [--client-cert CLIENT_CERT] [--client-key CLIENT_KEY]
+                              [--client-cert-password CLIENT_CERT_PASSWORD]
 
 IBL MET-SWIM AMQP Client Example
 
@@ -40,13 +42,24 @@ options:
   -h, --help            show this help message and exit
   --output-folder OUTPUT_FOLDER, -o OUTPUT_FOLDER
                         Folder to store received message data (default: 'received_data')
-  --url URL, -u URL     AMQPS URL to connect to (default: 'amqps://amqp.swim.iblsoft.com:5672')
+  --url URL, -u URL     AMQP(S) URL to connect to. Use 'amqps://' for SSL connections or 'amqp://' for unencrypted
+                        connections (default: 'amqps://amqp.swim.iblsoft.com:5672').
   --topic TOPIC, -t TOPIC
-                        AMQP topic/queue to subscribe to (default is the wildcard topic for all OPMET data: 'origin.a.wis2.com-
-                        ibl.data.core.weather.aviation.*')
+                        AMQP topic/queue to subscribe to (default is the wildcard topic for all OPMET data:
+                        'origin.a.wis2.com-ibl.data.core.weather.aviation.*')
   --ca-cert CA_CERT, -c CA_CERT
-                        Path to the CA certificate file to override the default HARICA staging root certificate (default:
-                        'C:\Projects\SWIM\swimdemo\HARICA-TLS-Root-2021-RSA.pem').
+                        Path to the CA certificate file to override the default HARICA staging root certificate
+                        (default: 'c:\Projects\SWIM\swimdemo\HARICA-TLS-Root-2021-RSA.pem'). On Windows, the
+                        certificate must be added to 'Trusted Root Certification Authorities' using certmgr.msc.
+  --client-cert CLIENT_CERT
+                        Optional. Path to the client certificate file for mutual TLS authentication. If not provided,
+                        only the server's authenticity will be verified.
+  --client-key CLIENT_KEY
+                        Optional. Path to the client private key file for mutual TLS authentication. If not provided,
+                        only the server's authenticity will be verified.
+  --client-cert-password CLIENT_CERT_PASSWORD
+                        Optional. Password for the client certificate file (e.g., .p12 file) used for mutual TLS
+                        authentication.
 ```
 
 ### Example output
