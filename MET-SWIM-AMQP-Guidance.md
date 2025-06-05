@@ -1,5 +1,7 @@
 # AMQP Message Structure for MET-SWIM
 
+The original working copy of this document is https://github.com/iblsoft/swimdemo/blob/main/MET-SWIM-AMQP-Guidance.md
+
 ## Version History
 
 | Version | Date | Changes | Author |
