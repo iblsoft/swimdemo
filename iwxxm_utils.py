@@ -52,18 +52,22 @@ def getIWXXMReportTypes(xml_root: ET.Element) -> set:
     return report_types
 
 def extractReportInformation(s_xmlString: str):
-    d_extractedInfo = {}
+    """
+    Extract information from IWXXM XML string.
+    Returns a list of dictionaries - one per report found.
+    For standalone reports, returns a single-item list.
+    For collections, returns a list with one dictionary per report.
+    """
     # Get the IWXXM version from the XML string
     set_iwxxmVersions = getIWXXMVersions(s_xmlString)
 
     if len(set_iwxxmVersions) == 0:
         print(f"No IWXXM version found!")
-        return d_extractedInfo
+        return []
     elif len(set_iwxxmVersions) > 1:
         print(f"Multiple IWXXM versions found, will use the first one: {set_iwxxmVersions}")
 
     s_iwxxmVersion = set_iwxxmVersions.pop()
-    #print(f"Document {xml_file} has IWXXM version {s_iwxxmVersion}")
 
     xml_tree = ET.parse(StringIO(s_xmlString))
     xml_root = xml_tree.getroot()
@@ -78,98 +82,114 @@ def extractReportInformation(s_xmlString: str):
     iwxxm_uri = next((uri for uri in nsmap.values() if uri.startswith("http://icao.int/iwxxm/")), None)
     aixm_uri = next((uri for uri in nsmap.values() if uri.startswith("http://www.aixm.aero/schema/")), None)
     gml_uri = next((uri for uri in nsmap.values() if uri.startswith("http://www.opengis.net/gml/")), None)
+    collect_uri = next((uri for uri in nsmap.values() if uri.startswith("http://def.wmo.int/collect/")), None)
     xlink_uri = "http://www.w3.org/1999/xlink"
 
-    set_reportTypes = getIWXXMReportTypes(xml_root)
-    s_reportType = set_reportTypes.pop()
+    def local_name(tag):
+        # Strip namespace, e.g. '{http://icao.int/iwxxm/3.0}SIGMET' -> 'SIGMET'
+        if '}' in tag:
+            return tag.split('}', 1)[1]
+        return tag
 
-    # Store the report type and IWXXM version
-    d_extractedInfo["report_type"] = s_reportType
-    d_extractedInfo["iwxxm_version"] = s_iwxxmVersion
+    def extract_single_report_info(report_element):
+        """Extract information from a single IWXXM report element."""
+        d_extractedInfo = {}
+        
+        s_reportType = local_name(report_element.tag)
+        
+        # Store the report type and IWXXM version
+        d_extractedInfo["report_type"] = s_reportType
+        d_extractedInfo["iwxxm_version"] = s_iwxxmVersion
 
-    # If the report type is SIGMET or AIRMET, we need to find the ICAO code of the airspace
-    # Using ElementTree's XPath support find the ICAO code of the airspace using XPath expression
-    # "iwxxm:issuingAirTrafficServicesRegion//aixm:designator". The search should start from the
-    # root element, under which the iwxxm:issuingAirTrafficServicesRegion element is located.
-
-    if s_reportType == "SIGMET" or s_reportType == "AIRMET":
-        # SIGMET report type
-        xpath_designator = f"{{{iwxxm_uri}}}issuingAirTrafficServicesRegion//{{{aixm_uri}}}designator"
-        xpath_type = f"{{{iwxxm_uri}}}issuingAirTrafficServicesRegion//{{{aixm_uri}}}type"
-        # Find the first occurence of the designator element
-        designator_elements = xml_root.findall(xpath_designator, nsmap)
-        type_elements = xml_root.findall(xpath_type, nsmap)
-        # Print the AIXM designator and type strings
-        if designator_elements:
-            designator = designator_elements[0].text
-            d_extractedInfo["airspace_designator"] = designator
-        else:
-            print("No AIXM designator found.")
-        if type_elements:
-            type_ = type_elements[0].text
-            d_extractedInfo["location_type"] = type_
-        else:
-            print("No AIXM type found.")
-
-    # If the report type is METAR, SPECI, or TAF, weed to find the ICAO code of the
-    # reporting station. The ICAO code is located in aixm:AirportHeliport, where we need to search
-    # for aixm:designator element.
-    if s_reportType in ["METAR", "SPECI", "TAF"]:
-        xpath_designator = f"{{{iwxxm_uri}}}aerodrome//{{{aixm_uri}}}AirportHeliport//{{{aixm_uri}}}designator"
-        designator_elements = xml_root.findall(xpath_designator, nsmap)
-        if designator_elements:
-            designator = designator_elements[0].text
-            d_extractedInfo["aerodrome_designator"] = designator
-
-    # Now we need to find out the issueTime of the IWXXM report.
-    # The issueTime is located in the iwxxm:issueTime element, which is a child of the
-    # root element. The issueTime element is a GML TimeInstant element, which has a child
-    # element gml:timePosition. The timePosition element has a text value that is the issueTime
-    # in ISO 8601 format.
-    xpath_issueTime = f"{{{iwxxm_uri}}}issueTime//{{{gml_uri}}}timePosition"
-    issueTime_elements = xml_root.findall(xpath_issueTime, nsmap)
-    if issueTime_elements:
-        issueTime = issueTime_elements[0].text
-        d_extractedInfo["issue_time"] = issueTime
-
-    # Some reports like METAR or SPECI will also have an iwxxm:observationTime element. It will either
-    # have the same structure as the issueTime element, or it will contain an xlink:href attribute
-    # containing a gml:id that will point to a gml:TimeInstant element in the same document, which
-    # contains the gml:timePosition element.
-    observationTime = None
-    xpath_observationTime = f"{{{iwxxm_uri}}}observationTime//{{{gml_uri}}}timePosition"
-    observationTime_elements = xml_root.findall(xpath_observationTime, nsmap)
-    if observationTime_elements:
-        observationTime = observationTime_elements[0].text
-        d_extractedInfo["observation_time"] = observationTime
-    else:
-        # No observationTime found, check for xlink:href attribute
-        xpath_observationTime_href = f"{{{iwxxm_uri}}}observationTime[@xlink:href]"
-
-        observationTime_href_elements = xml_root.findall(xpath_observationTime_href, nsmap)
-        if observationTime_href_elements:
-            # Get the xlink:href attribute value    
-            href = observationTime_href_elements[0].get(f"{{{xlink_uri}}}href")
-            # If the href starts with '#', it is a local reference to a gml:id in the same document, so remove it
-            # and use the gml:id to find the gml:TimeInstant element.
-            href = href.lstrip('#')
-            #print(f"Observation time is in the form of xlink:href: {href}")
-            # Find the gml:TimeInstant element with the given gml:id
-            xpath_timeInstant = f".//{{{gml_uri}}}TimeInstant[@{{{gml_uri}}}id='{href}']"
-            timeInstant_elements = xml_root.findall(xpath_timeInstant, nsmap)
-            if timeInstant_elements:
-                #print(f"Found gml:TimeInstant with gml:id: {href}")
-                # Get the gml:timePosition element from the TimeInstant element
-                timePosition_elements = timeInstant_elements[0].findall(f".//{{{gml_uri}}}timePosition", nsmap)
-                if timePosition_elements:
-                    observationTime = timePosition_elements[0].text
-                    #print(f"Observation Time (from xlink:href): {observationTime}")
-                    d_extractedInfo["observation_time"] = observationTime
-                else:
-                    print("No gml:timePosition found in the referenced gml:TimeInstant.")
+        # If the report type is SIGMET or AIRMET, we need to find the ICAO code of the airspace
+        if s_reportType == "SIGMET" or s_reportType == "AIRMET":
+            # SIGMET report type
+            xpath_designator = f"{{{iwxxm_uri}}}issuingAirTrafficServicesRegion//{{{aixm_uri}}}designator"
+            xpath_type = f"{{{iwxxm_uri}}}issuingAirTrafficServicesRegion//{{{aixm_uri}}}type"
+            # Find the first occurence of the designator element
+            designator_elements = report_element.findall(xpath_designator, nsmap)
+            type_elements = report_element.findall(xpath_type, nsmap)
+            # Store the AIXM designator and type strings
+            if designator_elements:
+                designator = designator_elements[0].text
+                d_extractedInfo["airspace_designator"] = designator
             else:
-                print(f"No gml:TimeInstant found with gml:id '{href}'.")
-    return d_extractedInfo
+                print("No AIXM designator found.")
+            if type_elements:
+                type_ = type_elements[0].text
+                d_extractedInfo["location_type"] = type_
+            else:
+                print("No AIXM type found.")
+
+        # If the report type is METAR, SPECI, or TAF, we need to find the ICAO code of the
+        # reporting station. The ICAO code is located in aixm:AirportHeliport, where we need to search
+        # for aixm:designator element.
+        if s_reportType in ["METAR", "SPECI", "TAF"]:
+            xpath_designator = f"{{{iwxxm_uri}}}aerodrome//{{{aixm_uri}}}AirportHeliport//{{{aixm_uri}}}designator"
+            designator_elements = report_element.findall(xpath_designator, nsmap)
+            if designator_elements:
+                designator = designator_elements[0].text
+                d_extractedInfo["aerodrome_designator"] = designator
+
+        # Now we need to find out the issueTime of the IWXXM report.
+        xpath_issueTime = f"{{{iwxxm_uri}}}issueTime//{{{gml_uri}}}timePosition"
+        issueTime_elements = report_element.findall(xpath_issueTime, nsmap)
+        if issueTime_elements:
+            issueTime = issueTime_elements[0].text
+            d_extractedInfo["issue_time"] = issueTime
+
+        # Some reports like METAR or SPECI will also have an iwxxm:observationTime element.
+        observationTime = None
+        xpath_observationTime = f"{{{iwxxm_uri}}}observationTime//{{{gml_uri}}}timePosition"
+        observationTime_elements = report_element.findall(xpath_observationTime, nsmap)
+        if observationTime_elements:
+            observationTime = observationTime_elements[0].text
+            d_extractedInfo["observation_time"] = observationTime
+        else:
+            # No observationTime found, check for xlink:href attribute
+            xpath_observationTime_href = f"{{{iwxxm_uri}}}observationTime[@xlink:href]"
+
+            observationTime_href_elements = report_element.findall(xpath_observationTime_href, nsmap)
+            if observationTime_href_elements:
+                # Get the xlink:href attribute value    
+                href = observationTime_href_elements[0].get(f"{{{xlink_uri}}}href")
+                # If the href starts with '#', it is a local reference to a gml:id in the same document, so remove it
+                # and use the gml:id to find the gml:TimeInstant element.
+                href = href.lstrip('#')
+                # Find the gml:TimeInstant element with the given gml:id
+                xpath_timeInstant = f".//{{{gml_uri}}}TimeInstant[@{{{gml_uri}}}id='{href}']"
+                timeInstant_elements = xml_root.findall(xpath_timeInstant, nsmap)
+                if timeInstant_elements:
+                    # Get the gml:timePosition element from the TimeInstant element
+                    timePosition_elements = timeInstant_elements[0].findall(f".//{{{gml_uri}}}timePosition", nsmap)
+                    if timePosition_elements:
+                        observationTime = timePosition_elements[0].text
+                        d_extractedInfo["observation_time"] = observationTime
+                    else:
+                        print("No gml:timePosition found in the referenced gml:TimeInstant.")
+                else:
+                    print(f"No gml:TimeInstant found with gml:id '{href}'.")
+        
+        return d_extractedInfo
+
+    root_localname = local_name(xml_root.tag)
+    
+    # Check if this is a collection (MeteorologicalBulletin) or a standalone report
+    if root_localname == 'MeteorologicalBulletin':
+        # This is a collection - process each meteorologicalInformation element
+        reports_info = []
+        for child in xml_root:
+            if local_name(child.tag) == 'meteorologicalInformation':
+                # Each meteorologicalInformation contains one IWXXM report
+                for report_element in child:
+                    if local_name(report_element.tag) in ['SIGMET', 'AIRMET', 'METAR', 'SPECI', 'TAF', 'TropicalCycloneAdvisory', 'VolcanicAshAdvisory', 'VolcanicAshSIGMET', 'TropicalCycloneSIGMET', 'SpaceWeatherAdvisory', 'SIGWXForecast']:
+                        report_info = extract_single_report_info(report_element)
+                        reports_info.append(report_info)
+        return reports_info
+    else:
+        # This is a standalone report
+        report_info = extract_single_report_info(xml_root)
+        return [report_info]
 
 if __name__ == '__main__':
     s_xmlString = None
@@ -181,11 +201,13 @@ if __name__ == '__main__':
             s_xmlString = f.read()
     else:
         # The user must provide a file on input, if not we need to exit
-        print("Usage: python iwxxm-extract-example.py <xml_file>")
+        print("Usage: python iwxxm_utils.py <xml_file>")
         sys.exit(1)
 
     # Example usage of the functions
-    extracted_info = extractReportInformation(s_xmlString)
-    print("Extracted Information:", extracted_info)
+    extracted_info_list = extractReportInformation(s_xmlString)
+    print(f"Found {len(extracted_info_list)} report(s)")
+    for i, extracted_info in enumerate(extracted_info_list, 1):
+        print(f"Report {i}: {extracted_info}")
 
 

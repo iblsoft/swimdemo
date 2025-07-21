@@ -169,10 +169,12 @@ class AMQPClient(MessagingHandler):
                     print(f"Payload saved to {filePath}")
                 
                 # Use the helper function to extract report information
-                extracted_info = extractReportInformation(decoded_payload)
-                print("Extracted IWXXM Report Information:")
-                for key, value in extracted_info.items():
-                    print(f"  {key}: {value}")
+                extracted_info_list = extractReportInformation(decoded_payload)
+                print(f"Extracted IWXXM Report Information: Found {len(extracted_info_list)} report(s)")
+                for i, extracted_info in enumerate(extracted_info_list, 1):
+                    print(f"  Report {i}:")
+                    for key, value in extracted_info.items():
+                        print(f"    {key}: {value}")
             except Exception as e:
                 print("Error decoding payload:", e)
         else:

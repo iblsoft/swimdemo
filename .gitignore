@@ -1,5 +1,6 @@
 # Ignore the received_data folder
 received_data/
 __pycache__/
+SIGMETs-PetoFarkas/
 # Ignore all .pyc files
 *.pyc
