@@ -765,7 +765,7 @@ The payload of technical messages SHALL be a JSON object containing at least the
 
 ### Message Types
 
-#### Subscription Status Message
+#### Subscription Change Message
 
 A message to notify about a changing subscription status.
 
@@ -778,7 +778,7 @@ A message to notify about a changing subscription status.
 | `reason` | string or `null` | Business reason of the subscription status change. |
 | `requester` | `USER` or `<name_of_service_offerer>` | The requester of this subscription change. |
 
-Example:
+Example (maintenance start):
 
 ```json
 {
@@ -787,91 +787,7 @@ Example:
     "event": "maintenance-start",
     "new_status": "paused",
     "reason": null,
-    "requester": "USER",
-}
-```
-
-#### Data Error Message
-
-Reports error conditions such as validation errors or missing data.
-
-| Field | Value | Description |
-|-------|-------|-------------|
-| `id` | UUID | Unique message identifier |
-| `type` | `error-message` | Fixed value |
-| `queue-status` | `null` | Not applicable for error messages |
-| `timestamp` | RFC3339 UTC | Message creation time |
-| `start` | `null` | Not used for error messages |
-| `duration` | `null` | Not used for error messages |
-| `message` | String | Error description |
-
-Example:
-
-```json
-{
-    "id": "660e8400-e29b-41d4-a716-446655440001",
-    "type": "error-message",
-    "queue-status": null,
-    "timestamp": "2025-04-15T14:32:15Z",
-    "start": null,
-    "duration": null,
-    "message": "IWXXM validation error: Missing required element iwxxm:issueTime"
-}
-```
-
-#### Expired Message
-
-Reports error conditions such as validation errors or missing data.
-
-| Field | Value | Description |
-|-------|-------|-------------|
-| `id` | UUID | Unique message identifier |
-| `type` | `error-message` | Fixed value |
-| `queue-status` | `null` | Not applicable for error messages |
-| `timestamp` | RFC3339 UTC | Message creation time |
-| `start` | `null` | Not used for error messages |
-| `duration` | `null` | Not used for error messages |
-| `message` | String | Error description |
-
-Example:
-
-```json
-{
-    "id": "660e8400-e29b-41d4-a716-446655440001",
-    "type": "error-message",
-    "queue-status": null,
-    "timestamp": "2025-04-15T14:32:15Z",
-    "start": null,
-    "duration": null,
-    "message": "IWXXM validation error: Missing required element iwxxm:issueTime"
-}
-```
-
-#### Scheduled Maintenance Message
-
-Announces planned maintenance windows or maintenance completion.
-
-| Field | Value | Description |
-|-------|-------|-------------|
-| `id` | UUID | Unique message identifier |
-| `type` | `maintenance-message` | Fixed value |
-| `queue-status` | `active` or `paused` | Current or expected queue status |
-| `timestamp` | RFC3339 UTC | Message creation time |
-| `start` | RFC3339 UTC or `null` | Start time of maintenance (null if maintenance end message) |
-| `duration` | Milliseconds or `null` | Expected duration (null if maintenance end message) |
-| `message` | String | Maintenance description |
-
-Example (maintenance start):
-
-```json
-{
-    "id": "770e8400-e29b-41d4-a716-446655440002",
-    "type": "maintenance-message",
-    "queue-status": "paused",
-    "timestamp": "2025-04-15T12:00:00Z",
-    "start": "2025-04-15T14:00:00Z",
-    "duration": 3600000,
-    "message": "Scheduled maintenance window - service will be unavailable"
+    "requester": "USER"
 }
 ```
 
@@ -879,13 +795,103 @@ Example (maintenance end):
 
 ```json
 {
-    "id": "880e8400-e29b-41d4-a716-446655440003",
-    "type": "maintenance-message",
-    "queue-status": "active",
-    "timestamp": "2025-04-15T15:00:00Z",
-    "start": null,
-    "duration": null,
-    "message": "Maintenance completed - service resumed"
+    "technical_message_type": "subscription-change",
+    "reference": "de-dwd.core.weather.aviation.metar.amqp-direct",
+    "event": "maintenance-stop",
+    "new_status": "active",
+    "reason": null,
+    "requester": "USER"
+}
+```
+
+#### Data Error Message
+
+A message which notifies about a current error in the queue.
+If the `error_type` is `message-expired`, the message MUST contain additional fields to provide details about the expired message.
+
+| Field | Value | Description |
+|-------|-------|-------------|
+| `technical_message_type` | `data-error` | This is a data error message to notify the consumer that something went wrong during data processing.  |
+| `error_type` | `validation-error`, `processing-error`, `system-delay`, `missing-data`, `message-expired`, or `unknown` | This is the machine readable type of the error. If the type is 'unknown' an unknown error occured and additional details can be found in `error_message`. |
+| `error_message` | string or null | This is a human-readable error message with details about the error. |
+
+Example:
+
+```json
+{
+    "technical_message_type": "data-error",
+    "error_type": "validation-error",
+    "error_message": null
+}
+```
+
+#### Expired Message
+
+A message to notify about expired messages in the queue.
+
+| Field | Value | Description |
+|-------|-------|-------------|
+| `technical_message_type` | `data-error` | This is a data error message to notify the consumer that something went wrong during data processing.  |
+| `error_type` | `message-expired` | This error notifies about a message which expired in this subscription. |
+| `error_message` | string | This is a human-readable error message with details about the error. |
+| `original_subject` | string | The original message subject of the expired message. |
+| `original_reference` | string | The original subscription or service in which the message expired. |
+| `original_message_id` | string | The original id of the expired message. |
+| `expiration_time` | RFC3339 UTC | The original timestamp of the expired message. |
+
+Example:
+
+```json
+{
+    "technical_message_type": "data-error",
+    "error_type": "validation-error",
+    "error_message": null,
+    "original_subject": "DATA_TAF_LOWS_NORMAL_20250401051500",
+    "original_reference": "de-dwd.core.weather.aviation.metar.amqp-direct",
+    "original_message_id": "770e8400-e29b-41d4-a716-446655440001",
+    "expiration_time": "2025-04-01T05:15:00Z"
+}
+```
+
+#### Heartbeat Message
+
+A message to notify the user about the availability of the subscription.
+
+| Field | Value | Description |
+|-------|-------|-------------|
+| `technical_message_type` | `heartbeat` | This is a heartbeat message to notify the consumer that the connection is established.  |
+| `timestamp` | RFC3339 UTC | Time in ISO8601 format at which this heartbeat was sent. |
+
+Example:
+
+```json
+{
+    "technical_message_type": "heartbeat",
+    "timestamp": "2025-04-15T14:30:00Z"
+}
+```
+
+#### Scheduled Maintenance Message
+
+A message which notifies about a scheduled maintenance in the future.
+
+| Field | Value | Description |
+|-------|-------|-------------|
+| `technical_message_type` | `scheduled-maintenance` | This is a scheduled maintenance message to notify about a scheduled maintenance. |
+| `reference` | string | The related reference (e.g., subscription or service name) to which the message has been sent. |
+| `planned_status` | `active`, `paused` or `absent` | The status of the subscription during the maintenance period.  |
+| `start` | RFC3339 UTC | The start datetime in ISO8601 format of the maintenance. If no timezone information is provided the datetime is in UTC. |
+| `duration` | ISO8601 duration (mabye there is something in RFC3339 as well) | The duration in ISO8601 format of the maintenance. |
+
+Example:
+
+```json
+{
+    "technical_message_type": "scheduled-maintenance",
+    "reference": "de-dwd.core.weather.aviation.metar.amqp-direct",
+    "planned_status": "absent",
+    "start": "2025-04-15T14:00:00Z",
+    "duration": "PT1H"
 }
 ```
 
