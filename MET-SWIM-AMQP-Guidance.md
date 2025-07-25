@@ -751,20 +751,15 @@ Technical messages SHALL include the following application properties:
 - **conformsTo**: `https://eur-registry.swim.aero/services/technical-message-service-10`
 - **topic**: The address to which this message is sent (e.g., `weather.aviation.metar`)
 - **properties.message_type**: `technical-message`
+- **properties.technical-message-type**: One of `subscription-change`, `scheduled-maintenance`, `data-error`, or `heartbeat`
 
 ### Payload Format
 
-The payload of technical messages SHALL be a JSON object with the following structure:
+The payload of technical messages SHALL be a JSON object containing at least the entry "technical_message_type". The encoding SHALL be utf-8. Depending on the "technical_message_type" the other fields of the message MUST adhere to the definitions for each technical message type. 
 
 ```json
 {
-    "id": "<uuid>",
-    "type": "<subscription-status-message|maintenance-message|error-message>",
-    "queue-status": "<interrupted|paused|active|created|deleted|null>",
-    "timestamp": "<RFC3339 UTC timestamp>",
-    "start": "<RFC3339 UTC timestamp or null>",
-    "duration": "<milliseconds or null>",
-    "message": "<descriptive text>"
+    "technical_message_type": "<subscription-change|scheduled-maintenance|data-error|heartbeat>"
 }
 ```
 
@@ -772,33 +767,31 @@ The payload of technical messages SHALL be a JSON object with the following stru
 
 #### Subscription Status Message
 
-Indicates a status change of the subscription or queue/channel.
+A message to notify about a changing subscription status.
 
 | Field | Value | Description |
 |-------|-------|-------------|
-| `id` | UUID | Unique message identifier |
-| `type` | `subscription-status-message` | Fixed value |
-| `queue-status` | `interrupted`, `paused`, `active`, `created`, or `deleted` | New status of the queue |
-| `timestamp` | RFC3339 UTC | Message creation time |
-| `start` | `null` | Not used for status messages |
-| `duration` | `null` | Not used for status messages |
-| `message` | String | Descriptive text about the status change |
+| `technical_message_type` | `subscription-change` | This is a subscription status message to notify about a change in subscription status.  |
+| `reference` | string | The related reference (e.g., subscription or service name) to which the message has been sent. |
+| `event` | `create, `delete`, `maintenance-start`, `maintenance-stop`, `resume`, or `user-request` | The event which triggered the subscription change. |
+| `new_status` | `active`, `paused`, or `absent` | The status of the subscription after this message has been sent.  |
+| `reason` | string or `null` | Business reason of the subscription status change. |
+| `requester` | `USER` or `<name_of_service_offerer>` | The requester of this subscription change. |
 
 Example:
 
 ```json
 {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "type": "subscription-status-message",
-    "queue-status": "paused",
-    "timestamp": "2025-04-15T14:30:00Z",
-    "start": null,
-    "duration": null,
-    "message": "Queue paused for maintenance"
+    "technical_message_type": "subscription-change",
+    "reference": "de-dwd.core.weather.aviation.metar.amqp-direct",
+    "event": "maintenance-start",
+    "new_status": "paused",
+    "reason": null,
+    "requester": "USER",
 }
 ```
 
-#### Error Message
+#### Data Error Message
 
 Reports error conditions such as validation errors or missing data.
 
@@ -826,7 +819,35 @@ Example:
 }
 ```
 
-#### Maintenance Message
+#### Expired Message
+
+Reports error conditions such as validation errors or missing data.
+
+| Field | Value | Description |
+|-------|-------|-------------|
+| `id` | UUID | Unique message identifier |
+| `type` | `error-message` | Fixed value |
+| `queue-status` | `null` | Not applicable for error messages |
+| `timestamp` | RFC3339 UTC | Message creation time |
+| `start` | `null` | Not used for error messages |
+| `duration` | `null` | Not used for error messages |
+| `message` | String | Error description |
+
+Example:
+
+```json
+{
+    "id": "660e8400-e29b-41d4-a716-446655440001",
+    "type": "error-message",
+    "queue-status": null,
+    "timestamp": "2025-04-15T14:32:15Z",
+    "start": null,
+    "duration": null,
+    "message": "IWXXM validation error: Missing required element iwxxm:issueTime"
+}
+```
+
+#### Scheduled Maintenance Message
 
 Announces planned maintenance windows or maintenance completion.
 
