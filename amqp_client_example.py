@@ -169,7 +169,11 @@ class AMQPClient(MessagingHandler):
                     print(f"Payload saved to {filePath}")
                 
                 # Use the helper function to extract report information
-                extracted_info_list = extractReportInformation(decoded_payload)
+                if self.outputFolderPath:
+                    context = f"AMQP message saved to '{filePath}'"
+                else:
+                    context = f"AMQP message with subject '{msg.subject}'" if msg.subject else "AMQP message"
+                extracted_info_list = extractReportInformation(decoded_payload, context)
                 print(f"Extracted IWXXM Report Information: Found {len(extracted_info_list)} report(s)")
                 for i, extracted_info in enumerate(extracted_info_list, 1):
                     print(f"  Report {i}:")
