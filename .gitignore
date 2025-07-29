@@ -1,6 +1,13 @@
 # Ignore the received_data folder
 received_data/
+test_data/
 __pycache__/
+keys/
+study/
+stats/
 SIGMETs-PetoFarkas/
 # Ignore all .pyc files
 *.pyc
+# Ignore certificates and private keys
+*.pem
+*.crt
