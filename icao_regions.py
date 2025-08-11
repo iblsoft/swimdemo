@@ -1,4 +1,5 @@
 # ICAO region code to country/geographical area mapping
+# Source is https://www.avcodes.co.uk/icaonat.asp
 ICAO_REGION_MAPPING = {
     'AG': 'Solomon Islands',
     'AN': 'Nauru Islands',
