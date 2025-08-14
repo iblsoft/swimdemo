@@ -15,15 +15,15 @@ Members of the EUROCONTROL MET3SG Task Team on Service Architecture can submit p
   2. Removed content not directly relevant for CP1:
      1. External URL links for download of alternative formats (IWXXM will be passed in the message payload)
      2. Content type "application/url-list"
-     3. geometry properties (aerodrome coordinates, SIGMET bounding boxes)
-     4. payload integrity properties based on WIS 2.0 WNM, SWIM TI Yellow Profile 2.0 mandates usage of S/MIME 4.0 for this purpose.
+     3. Geometry properties (aerodrome coordinates, SIGMET bounding boxes)
+     4. Payload integrity properties that were based on WIS 2.0 WNM, and SWIM TI Yellow Profile 2.0 mandates the use of S/MIME 4.0 for this purpose.
      5. Technical messages
-  3. The only way of sending IWWXM is now embeddeding the data in the AMQP message payload with content type `application/xml`. All mentions of `links` and `url-list` have been removed.
+  3. The only way to send IWXXM is now embedding the data in the AMQP message payload with the content type `application/xml`. All mentions of `links` and `url-list` have been removed.
   4. Discarded `subject` strings of type `DATA_METAR_LOWS_CORRECTION_2025040106450` because they create duplicity to the AMQP application properties, which are a much better filtering mechanism compared to application of wildcard patterns to a subject string (suggestion by Dario di Crescenzo).
-  5. The "subject" string now contains simply `aviation.weather.metar`.
-  6. Dropped all `properties.` prefixes, e.g. `properties.start_datetime`. The `properties` object is used in WIS 2.0 Notification Message (WNM) standard because the WNM notifications conform to GeoJSON structure. The GeoJSON specification mandates that all custom properties need to be placed in a separate `properties` sub-object. In AMQP, however, the application properties concept is the direct equivalent of the GeoJSON properties - it is a list of application-defined data. So there is no strict need for usage of the prefix.
+  5. The "subject" string now contains `aviation.weather.metar`.
+  6. Dropped all `properties.` prefixes, e.g. `properties.start_datetime`. The `properties` object is used in the WIS 2.0 Notification Message (WNM) standard because the WNM notifications conform to the GeoJSON structure. The GeoJSON specification mandates that all custom properties must be placed in a separate `properties` sub-object. In AMQP, however, the application properties concept is the direct equivalent of the GeoJSON properties - it is a list of application-defined data. So, there is no strict need to use prefixes.
   7. New application property `report_type` with values _NORMAL_, _AMENDMENT_, _CORRECTION_.
-  8. New application property `issue_time` replaces previous `properties.pubtime`. The publication time in WIS 2.0 WNM is the creation time of the notification message, so using this terminology for METAR, TAF, or SIGMET issue time was incorrect. In AMQP the direct equivalent of properties.pubtime is the AMQP transport header property `creation-time`.
+  8. The new application property `issue_time` replaces the previous `properties.pubtime`. The publication time in WIS 2.0 WNM is the creation time of the notification message, so using this terminology for METAR, TAF, or SIGMET issue time was incorrect. In AMQP, the direct equivalent of `properties.pubtime` is the AMQP transport header property `creation-time`.
   9. Added AMQP transport header property `creation-time`.
   10. Rewritten section on `absolute-expiry-time`. The original idea of specifying expiration of 3h for METAR, 12h for TAF, 24h for SIGMET was incorrect.
   11. The guidance for the priority field in AMQP transport header just states that certain message types should have higher priorities than others. For example, a TAF AMD should have higher priority than a regular TAF.
