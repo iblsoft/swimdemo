@@ -22,7 +22,7 @@ Members of the EUROCONTROL MET3SG Task Team on Service Architecture can submit p
   4. Discarded `subject` strings of type `DATA_METAR_LOWS_CORRECTION_2025040106450` because they create duplicity to the AMQP application properties, which are a much better filtering mechanism compared to application of wildcard patterns to a subject string (suggestion by Dario di Crescenzo).
   5. The "subject" string now contains `aviation.weather.metar`.
   6. Dropped all `properties.` prefixes, e.g. `properties.start_datetime`. The `properties` object is used in the WIS 2.0 Notification Message (WNM) standard because the WNM notifications conform to the GeoJSON structure. The GeoJSON specification mandates that all custom properties must be placed in a separate `properties` sub-object. In AMQP, however, the application properties concept is the direct equivalent of the GeoJSON properties - it is a list of application-defined data. So, there is no strict need to use prefixes.
-  7. New application property `report_type` with values _NORMAL_, _AMENDMENT_, _CORRECTION_.
+  7. New application property `report_status` with values _NORMAL_, _AMENDMENT_, _CORRECTION_.
   8. The new application property `issue_time` replaces the previous `properties.pubtime`. The publication time in WIS 2.0 WNM is the creation time of the notification message, so using this terminology for METAR, TAF, or SIGMET issue time was incorrect. In AMQP, the direct equivalent of `properties.pubtime` is the AMQP transport header property `creation-time`.
   9. Added AMQP transport header property `creation-time`.
   10. Rewritten section on `absolute-expiry-time`. The original idea of specifying expiration of 3h for METAR, 12h for TAF, 24h for SIGMET was incorrect.
