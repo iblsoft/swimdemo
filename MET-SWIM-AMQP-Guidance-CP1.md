@@ -29,11 +29,6 @@ Members of the EUROCONTROL MET3SG Task Team on Service Architecture can submit p
   11. The guidance for the priority field in AMQP transport header just states that certain message types should have higher priorities than others. For example, a TAF AMD should have higher priority than a regular TAF.
   12. Added mention of _AMQP Messaging with Message Security_ using S/MIME 4.0 as defined in SWIM TI Yellow Profile 2.0, but without further implementation guidance. This section needs to be fleshed out.
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0-draft | 2025-06 | Initial draft. |
-| 1.0-draft2 | 2025-08 | Incorporated feedback, simplified, split into "CP1" and "Next" for properties beyond CP1. |
-
 ## Introduction
 
 This document defines the message structure and properties for AMQP 1.0 messages used in the MET-SWIM (Meteorological System Wide Information Management) implementation of the European Union Common Project Regulation (CP1). It provides guidance for developers and organisations implementing meteorological OPMET data distribution using AMQP 1.0 protocol in line with the SWIM Service definitions.
