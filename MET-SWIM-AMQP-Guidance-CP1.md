@@ -4,6 +4,7 @@ In August 2025, the AMQP guidance was split into two parts: _CP1_ and _Next_
 
 - The original working copy of this document is maintained in Markdown syntax: [MET-SWIM-AMQP-Guidance-CP1.md](https://github.com/iblsoft/swimdemo/blob/main/MET-SWIM-AMQP-Guidance-CP1.md).
 - Properties that go beyond the CP1 MET-SWIM Service Definitions are maintained separately in [MET-SWIM-AMQP-Guidance-Next.md](https://github.com/iblsoft/swimdemo/blob/main/MET-SWIM-AMQP-Guidance-Next.md).
+- The .docx version is generated using Pandoc, specifically the “vscode-pandoc” extension for the Microsoft Visual Studio Code, or the Cursor editor.
 
 Members of the EUROCONTROL MET3SG Task Team on Service Architecture can submit pull requests towards the Markdown documents or comment on the .DOCX version on MET3SG SharePoint.
 
@@ -23,7 +24,7 @@ Members of the EUROCONTROL MET3SG Task Team on Service Architecture can submit p
   5. The "subject" string now contains `aviation.weather.metar`.
   6. Dropped all `properties.` prefixes, e.g. `properties.start_datetime`. The `properties` object is used in the WIS 2.0 Notification Message (WNM) standard because the WNM notifications conform to the GeoJSON structure. The GeoJSON specification mandates that all custom properties must be placed in a separate `properties` sub-object. In AMQP, however, the application properties concept is the direct equivalent of the GeoJSON properties - it is a list of application-defined data. So, there is no strict need to use prefixes.
   7. New application property `report_status` with values _NORMAL_, _AMENDMENT_, _CORRECTION_.
-  8. The new application property `issue_time` replaces the previous `properties.pubtime`. The publication time in WIS 2.0 WNM is the creation time of the notification message, so using this terminology for METAR, TAF, or SIGMET issue time was incorrect. In AMQP, the direct equivalent of `properties.pubtime` is the AMQP transport header property `creation-time`.
+  8. The new application property `issue_datetime` replaces the previous `properties.pubtime`. The publication time in WIS 2.0 WNM is the creation time of the notification message, so using this terminology for METAR, TAF, or SIGMET issue time was incorrect. In AMQP, the direct equivalent of `properties.pubtime` is the AMQP transport header property `creation-time`.
   9. Added AMQP transport header property `creation-time`.
   10. Rewritten section on `absolute-expiry-time`. The original idea of specifying expiration of 3h for METAR, 12h for TAF, 24h for SIGMET was incorrect.
   11. The guidance for the priority field in AMQP transport header just states that certain message types should have higher priorities than others. For example, a TAF AMD should have higher priority than a regular TAF.
@@ -215,7 +216,9 @@ The MET-SWIM service AMQP implementations and clients SHALL support the followin
 
 ### absolute-expiry-time (OPTIONAL)
 
-Unix timestamp indicating when the message should expire in the broker and from the durable queues.
+Unix-like UTC timestamp in milliseconds, indicating when the message should expire in the broker and from the durable queues. Please see also the definition of the [timestamp](http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-types-v1.0-os.html#type-timestamp)) type in the AMQP specification:
+
+> Represents an approximate point in time using the Unix time_t [IEEE1003] encoding of UTC, but with a precision of milliseconds. For example, 1311704463521 represents the moment 2011-07-26T18:21:03.521Z
 
 The `absolute-expiry-time` tells the broker when it should discard a message. On the other hand, the `ttl` field in the AMQP transport header (relative number in milliseconds) is typically calculated using a difference between the `absolute-expiry-time` and the time when the message was created. The `absolute-expiry-time` stays constant during the message's lifetime, whereas `ttl` can be progressively decreased by AMQP intermediaries.
 
@@ -226,7 +229,7 @@ If a MET-SWIM AMQP implementation sets the absolute-expiry-time, it SHOULD set i
 - Give the clients a chance to receive the messages during shorter communication outages or client maintenance periods.
 - Keep the messages long enough to survive the AMQP server maintenance windows or outages.
 
-Example: AMQP message creation + 12 hours
+**Example:** AMQP message creation + 12 hours
 
 Note: Originally, it was proposed to set the absolute-expiry-time depending on the report type, e.g. 3h for METAR, 12h for TAF, 24h for SIGMET. However, in general, there can be varying purposes for why the client needs to be subscribed to the data:
 
@@ -235,7 +238,7 @@ Note: Originally, it was proposed to set the absolute-expiry-time depending on t
 
 ### creation-time (OPTIONAL)
 
-This is the Unix timestamp indicating when the AMQP message was initially created. It mostly serves an informational purpose in AMQP and is used in the `ttl` calculation in some brokers.
+This is the Unix UTC timestamp (in milliseconds since the epoch) indicating when the AMQP message was initially created. It mostly serves an informational purpose in AMQP and is used in the `ttl` calculation in some brokers.
 
 ## AMQP Application Properties
 
@@ -295,9 +298,11 @@ ICAO identifier of the location. Mandatory for reports that are issued for an ae
 icao_location_identifier: "EBBR"
 ```
 
-#### icao_location_type (mandatory)
+#### icao_location_type (optional)
 
-Type of location identifier. Mandatory if `icao_location_identifier` was provided.
+Type of location identifier. Can be optionally used for disambiguation when the location referred to by the `icao_location_identifier` is not clear.
+
+**Motivation:** Some countries use the same ICAO code to refer to both the lower FIR and the upper UIR airspace. For example, there are SIGMETs issued for `LECB BARCELONA FIR`, `LECB BARCELONA UIR`, and `LECB BARCELONA FIR/UIR`, depending on which vertical portion of the airspace is affected by the hazard. Including the airspace type information can help users subscribe to the lower (or upper) airspace only.
 
 - `AD` - Aerodrome (for METAR/TAF)
   - From AIXM [AirportHeliportType](https://aixm.aero/sites/default/files/imce/AIXM51HTML/AIXM/DataType_CodeAirportHeliportType.html)
@@ -324,21 +329,21 @@ Example values:
 - `https://eur-registry.swim.aero/services/eurocontrol-iwxxm-taf-subscription-and-request-service-10`
 - `https://eur-registry.swim.aero/services/eurocontrol-iwxxm-sigmet-subscription-and-request-service-10`
 
-### Temporal Properties
+### Temporal Application Properties
 
 These properties contain date and time information extracted from the IWXXM document.
 
-#### issue_time (mandatory)
+#### issue_datetime (mandatory)
 
 [RFC 3339](https://datatracker.ietf.org/doc/html/rfc3339) formatted publication/issue time extracted from `iwxxm:issueTime`:
 
 ```yaml
-issue_time: "2025-04-15T14:10:00Z"
+issue_datetime: "2025-04-15T14:10:00Z"
 ```
 
 This property is mandatory for all the CP1 message types.
 
-**Note:** In previous proposals, this was called `pubtime` in reference to WIS 2.0 WNP publication time (`properties.pubtime`). However, the meaning of publication time in WNM is when the message was initially sent, which is closer to the meaning of the `creation-time` in the AMQP transport header.
+**Note:** In previous proposals, this was called `pubtime` in reference to WIS 2.0 WNP publication time (`properties.pubtime`). However, the publication time in WNM refers to when the notification message was sent, rather than time of issuing of the meteorological report itself. Time of sending of the notification message is better represented by the `creation-time` in the AMQP transport header.
 
 #### datetime (conditional)
 
@@ -442,7 +447,7 @@ absolute-expiry-time: 1744823400
 
 # Application Properties
 conformsTo: "https://eur-registry.swim.aero/services/eurocontrol-iwxxm-metar-speci-subscription-and-request-service-10"
-issue_time: "2025-04-15T12:02:00Z"
+issue_datetime: "2025-04-15T12:02:00Z"
 datetime: "2025-04-15T12:00:00Z"
 icao_location_identifier: "EBBR"
 icao_location_type: "AD"
@@ -467,7 +472,7 @@ content-encoding: "gzip"
 
 # Application Properties
 conformsTo: "https://eur-registry.swim.aero/services/eurocontrol-iwxxm-taf-subscription-and-request-service-10"
-issue_time: "2025-04-01T06:45:00Z"
+issue_datetime: "2025-04-01T06:45:00Z"
 start_datetime: "2025-04-01T06:00:00Z"
 end_datetime: "2025-04-02T06:00:00Z"
 icao_location_identifier: "LOWS"
@@ -491,7 +496,7 @@ absolute-expiry-time: 1744813130
 
 # Application Properties
 conformsTo: "https://eur-registry.swim.aero/services/eurocontrol-iwxxm-sigmet-subscription-and-request-service-10"
-issue_time: "2025-04-15T14:10:00Z"
+issue_datetime: "2025-04-15T14:10:00Z"
 start_datetime: "2025-04-15T14:30:00Z"
 end_datetime: "2025-04-15T18:00:00Z"
 icao_location_identifier: "UDDD"
@@ -532,15 +537,15 @@ Instead of hardcoding specific version URIs, detect namespaces dynamically by th
 
 **Python Implementation**: The [IBL swimdemo iwxxm_utils.py](https://github.com/iblsoft/swimdemo/blob/main/iwxxm_utils.py) provides a working example of this approach.
 
-**Legacy vs. Current Namespace Examples**:
+**Older vs. Current Namespace Examples**:
 
 ```xml
-<!-- Legacy IWXXM (pre-2023) -->
-xmlns:iwxxm="http://icao.int/iwxxm/2.1"
+<!-- Legacy IWXXM -->
+xmlns:iwxxm="http://icao.int/iwxxm/3.0"
 xmlns:aixm="http://www.aixm.aero/schema/5.1.1"
 xmlns:gml="http://www.opengis.net/gml/3.2"
 
-<!-- Current IWXXM (2023+) -->
+<!-- Current IWXXM -->
 xmlns:iwxxm="https://schemas.wmo.int/iwxxm/2023-1"
 xmlns:aixm="http://www.aixm.aero/schema/5.1.1"
 xmlns:gml="http://www.opengis.net/gml/3.2"
@@ -566,9 +571,13 @@ Each document contains:
 
 #### Property Extraction Reference
 
+The table below summarises which IWXXM XML elements or attributes contain the information necessary to populate the message and application properties in AMQP.
+
+The guidance is compatible with IWXXM 3.0 and subsequent versions such as 2021-02 or 2023-01. It is not compatible with IWXXM 2.1 which had significantly different structure due to the usage of OM (Observation Model) schema. IWXXM 3.0 abandoned the Observation Model schema around 2018.
+
 | AMQP Property | Report Types | XPath Expression | Description | Example Value |
 |---------------|--------------|------------------|-------------|---------------|
-| `issue_time` | ALL | `/iwxxm:*/iwxxm:issueTime` | Issue/publication time from root element | `2025-04-15T14:10:00Z` |
+| `issue_datetime` | ALL | `/iwxxm:*/iwxxm:issueTime` | Issue/publication time from root element | `2025-04-15T14:10:00Z` |
 | `datetime` | METAR, SPECI | `/iwxxm:METAR/iwxxm:observationTime` | Observation time | `2025-03-31T03:00:00Z` |
 | `start_datetime` | TAF, SIGMET | `/iwxxm:*/iwxxm:validPeriod/gml:beginPosition` | Start of validity period | `2025-04-15T14:30:00Z` |
 | `end_datetime` | TAF, SIGMET | `/iwxxm:*/iwxxm:validPeriod/gml:endPosition` | End of validity period | `2025-04-15T18:00:00Z` |
