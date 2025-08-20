@@ -10,8 +10,8 @@ Members of the EUROCONTROL MET3SG Task Team on Service Architecture can submit p
 
 ## Version History
 
-- 1.0-draft1 (June 2025) Initial draft.
-- 1.0-draft2 (August 2025)
+- 1.0-draft1 (2025-06) Initial draft.
+- 1.0-draft2 (2025-08-14)
   1. Separated into guidance for CP1 (this document), and a "Next" document that contains the preparations for further extensions beyond CP1.
   2. Removed content not directly relevant for CP1:
      1. External URL links for download of alternative formats (IWXXM will be passed in the message payload)
@@ -29,6 +29,11 @@ Members of the EUROCONTROL MET3SG Task Team on Service Architecture can submit p
   10. Rewritten section on `absolute-expiry-time`. The original idea of specifying expiration of 3h for METAR, 12h for TAF, 24h for SIGMET was incorrect.
   11. The guidance for the priority field in AMQP transport header just states that certain message types should have higher priorities than others. For example, a TAF AMD should have higher priority than a regular TAF.
   12. Added mention of _AMQP Messaging with Message Security_ using S/MIME 4.0 as defined in SWIM TI Yellow Profile 2.0, but without further implementation guidance. This section needs to be fleshed out.
+- 1.0-draft3 (2025-08-20)
+  1. Renamed `issue_time` to `issue_datetime` for consistency with other temporal application properties.
+  2. Explanation why `absolute-expiry-time` and `creation-time` are handled differently - they are AMQP 1.0 built-in transport headers using the Unix time_t UTC timestamp in milliseconds, and they are not a part of the application headers.
+  3. `icao_location_type` turned from _mandatory_ to _optional_, to be included only when disambiguation is needed. Explained motivation using `LECB BARCELONA FIR` vs. `BARCELONA UIR`.
+  4. Removed references to IWXXM 2.1, because the guidance related to property extraction does not work for versions older than IWXXM 3.0 (year 2018). IWXXM 3.0 significantly changed structure of IWXXM and abandoned the use of OM (Observation Model) schema.
 
 ## Introduction
 
@@ -304,6 +309,8 @@ Type of location identifier. Can be optionally used for disambiguation when the 
 
 **Motivation:** Some countries use the same ICAO code to refer to both the lower FIR and the upper UIR airspace. For example, there are SIGMETs issued for `LECB BARCELONA FIR`, `LECB BARCELONA UIR`, and `LECB BARCELONA FIR/UIR`, depending on which vertical portion of the airspace is affected by the hazard. Including the airspace type information can help users subscribe to the lower (or upper) airspace only.
 
+Values:
+
 - `AD` - Aerodrome (for METAR/TAF)
   - From AIXM [AirportHeliportType](https://aixm.aero/sites/default/files/imce/AIXM51HTML/AIXM/DataType_CodeAirportHeliportType.html)
 - `FIR` - Flight Information Region (for SIGMET)
@@ -573,7 +580,7 @@ Each document contains:
 
 The table below summarises which IWXXM XML elements or attributes contain the information necessary to populate the message and application properties in AMQP.
 
-The guidance is compatible with IWXXM 3.0 and subsequent versions such as 2021-02 or 2023-01. It is not compatible with IWXXM 2.1 which had significantly different structure due to the usage of OM (Observation Model) schema. IWXXM 3.0 abandoned the Observation Model schema around 2018.
+The guidance is compatible with IWXXM 3.0 and subsequent versions such as 2021-2 or 2023-1. It is not compatible with IWXXM 2.1 which had significantly different structure due to the usage of OM (Observation Model) schema. IWXXM 3.0 abandoned the Observation Model schema around 2018.
 
 | AMQP Property | Report Types | XPath Expression | Description | Example Value |
 |---------------|--------------|------------------|-------------|---------------|
