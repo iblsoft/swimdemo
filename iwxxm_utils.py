@@ -75,17 +75,25 @@ def extractReportInformation(data: Union[str, bytes], context: str = None):
     # WMO encapsulation detection
     if len(data_bytes) >= 13 and WMO_HEADER_PATTERN.match(data_bytes[:13]):
         # WMO encapsulation detected
+        print(f"WMO encapsulation detected, processing {len(data_bytes)} bytes")
         with WMOReader(file=BytesIO(data_bytes), b_requireZeroTail=False) as reader:
             messages = reader.read()
+        print(f"Extracted {len(messages)} messages from WMO encapsulation")
         all_reports = []
-        for msg_bytes in messages:
-            msg_str = msg_bytes.decode('utf-8', errors='replace')
-            # Skip the WMO heading line (everything up to and including the first \n)
-            xml_start_index = msg_str.find('\n') + 1
-            xml_content = msg_str[xml_start_index:]
-            # Process each extracted message as XML (skip WMO detection for individual messages)
-            reports = _extractReportInformationFromXML(xml_content, context)
-            all_reports.extend(reports)
+        total_msgs = len(messages)
+        for i, msg_bytes in enumerate(messages, 1):
+            try:
+                msg_str = msg_bytes.decode('utf-8', errors='replace')
+                xml_start_index = msg_str.find('\n') + 1
+                xml_content = msg_str[xml_start_index:]
+                # Process each extracted message as XML (skip WMO detection for individual messages)
+                reports = _extractReportInformationFromXML(xml_content, context)
+                all_reports.extend(reports)
+            except Exception as e:
+                print(f"Skipping message {i}/{total_msgs} due to XML error: {e}")
+            # Progress update every 1000 messages (and at completion)
+            if total_msgs >= 1000 and (i % 1000 == 0 or i == total_msgs):
+                print(f"Processed {i}/{total_msgs} messages ({i/total_msgs*100:.1f}%)")
         return all_reports
     # Not WMO encapsulation, treat as XML
     if isinstance(data, bytes):
