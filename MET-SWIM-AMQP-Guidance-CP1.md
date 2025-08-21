@@ -43,7 +43,7 @@ Initial draft for collecting feedback.
 
 ### 1.0-draft4 (2025-08-21)
 
-Rolled back the abandonement of `properties.<name>` prefixes for application properties. This is based on a discussion with Tom Kralidis (Meteorological Service of Canada, <https://github.com/tomkralidis>) who is the original author of the WIS 2.0 Notification Messages structure (WNM):
+Rolled back the abandonment of `properties.<name>` prefixes for application properties. This is based on a discussion with Tom Kralidis (Meteorological Service of Canada, <https://github.com/tomkralidis>) who is the original author of the WIS 2.0 Notification Messages structure (WNM):
 
 1. I the **"-Next"** proposals (beyond CP1) we have `geometry` and `links` prefixes, so leaving out the `property` prefix creates inconsistency with the JSON structure of the WNM messages we take inspiration from.
 2. Using the `property.<name>` prefixes allows for easier interoperability between WIS 2.0 and MET-SWIM.
@@ -273,15 +273,6 @@ Properties in the sections below are divided into categories based on their usag
 - _conditional_: are mandatory under stated conditions,
 - _optional_: their presence is left to the implementation, but when included, they SHALL adhere to this specification.
 
-**Note:** Earlier revisions of this guidance used a `properties.` prefix to stay close to the _WIS 2.0 Notification Message (WNM)_ standard. However:
-
-1. The usage of the `properties` object in WNM is only due to the WIS 2.0 notification message conforming to the GeoJSON formatting ([RFC 7946](https://datatracker.ietf.org/doc/html/rfc7946)).
-2. The GeoJSON specification requires that all custom properties be stored in a `properties` sub-object rather than in the top-level object reserved for feature type declaration and geometry.
-3. In AMQP, this is unnecessary because the direct equivalent of the GeoJSON custom properties are the AMQP application properties, so there is no need to use any prefix.
-4. See also the [WNM message](https://wmo-im.github.io/wis2-notification-message/standard/wis2-notification-message-STABLE.html#_wis2_notification_message_examples) example from the WIS 2.0 specification.
-
-> **TODO:** is this a good decision, or should we go back to using the `"properties."` prefix to have a more 1:1 correspondence to the WNM JSON?
-
 ### Examples of AMQP Filter Expressions applied to Application Properties
 
 ```sql
@@ -368,7 +359,7 @@ properties.issue_datetime: "2025-04-15T14:10:00Z"
 
 This property is mandatory for all the CP1 message types.
 
-**Note:** In previous proposals, this was called `pubtime` in reference to WIS 2.0 WNP publication time (`properties.pubtime`). However, the publication time in WNM refers to when the notification message was sent, rather than time of issuing of the meteorological report itself. Time of sending of the notification message is better represented by the `creation-time` in the AMQP transport header.
+**Note:** In previous proposals, this was called `properties.pubtime` in reference to WIS 2.0 WNP publication time (`properties.pubtime`). However, the publication time in WNM refers to when the notification message was sent, rather than time of issuing of the meteorological report itself. Time of sending of the notification message is better represented by the `creation-time` in the AMQP transport header.
 
 #### properties.datetime (conditional)
 
@@ -388,7 +379,7 @@ For TAF/SIGMET - start of validity period in [RFC 3339](https://datatracker.ietf
 properties.start_datetime: "2025-04-15T14:30:00Z"
 ```
 
-**Note:** `properties.start_datetime` and `properties.end_datetime` properties correspond to the equivalently named properties in the WIS 2.0 Notification Messages. See [Properties / Temporal description](https://wmo-im.github.io/wis2-notification-message/standard/wis2-notification-message-STABLE.html#_1_12_properties_temporal_description) in the WNM specification.
+**Note:** `properties.start_datetime` and `properties.end_datetime` correspond to the equivalently named properties in the WIS 2.0 Notification Messages. See [Properties / Temporal description](https://wmo-im.github.io/wis2-notification-message/standard/wis2-notification-message-STABLE.html#_1_12_properties_temporal_description) in the WNM specification.
 
 #### properties.end_datetime (conditional)
 
