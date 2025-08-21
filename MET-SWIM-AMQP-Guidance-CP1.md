@@ -10,31 +10,47 @@ Members of the EUROCONTROL MET3SG Task Team on Service Architecture can submit p
 
 ## Version History
 
-- 1.0-draft1 (2025-06) Initial draft.
-- 1.0-draft2 (2025-08-14)
-  1. Separated into guidance for CP1 (this document), and a "Next" document that contains the preparations for further extensions beyond CP1.
-  2. Removed content not directly relevant for CP1:
-     1. External URL links for download of alternative formats (IWXXM will be passed in the message payload)
-     2. Content type "application/url-list"
-     3. Geometry properties (aerodrome coordinates, SIGMET bounding boxes)
-     4. Payload integrity properties that were based on WIS 2.0 WNM, and SWIM TI Yellow Profile 2.0 mandates the use of S/MIME 4.0 for this purpose.
-     5. Technical messages
-  3. The only way to send IWXXM is now embedding the data in the AMQP message payload with the content type `application/xml`. All mentions of `links` and `url-list` have been removed.
-  4. Discarded `subject` strings of type `DATA_METAR_LOWS_CORRECTION_2025040106450` because they create duplicity to the AMQP application properties, which are a much better filtering mechanism compared to application of wildcard patterns to a subject string (suggestion by Dario di Crescenzo).
-  5. The "subject" string now contains `aviation.weather.metar`.
-  6. Dropped all `properties.` prefixes, e.g. `properties.start_datetime`. The `properties` object is used in the WIS 2.0 Notification Message (WNM) standard because the WNM notifications conform to the GeoJSON structure. The GeoJSON specification mandates that all custom properties must be placed in a separate `properties` sub-object. In AMQP, however, the application properties concept is the direct equivalent of the GeoJSON properties - it is a list of application-defined data. So, there is no strict need to use prefixes.
-  7. New application property `report_status` with values _NORMAL_, _AMENDMENT_, _CORRECTION_.
-  8. The new application property `issue_datetime` replaces the previous `properties.pubtime`. The publication time in WIS 2.0 WNM is the creation time of the notification message, so using this terminology for METAR, TAF, or SIGMET issue time was incorrect. In AMQP, the direct equivalent of `properties.pubtime` is the AMQP transport header property `creation-time`.
-  9. Added AMQP transport header property `creation-time`.
-  10. Rewritten section on `absolute-expiry-time`. The original idea of specifying expiration of 3h for METAR, 12h for TAF, 24h for SIGMET was incorrect.
-  11. The guidance for the priority field in AMQP transport header just states that certain message types should have higher priorities than others. For example, a TAF AMD should have higher priority than a regular TAF.
-  12. Added mention of _AMQP Messaging with Message Security_ using S/MIME 4.0 as defined in SWIM TI Yellow Profile 2.0, but without further implementation guidance. This section needs to be fleshed out.
-- 1.0-draft3 (2025-08-20)
-  1. Renamed `issue_time` to `issue_datetime` for consistency with other temporal application properties.
-  2. Explanation why `absolute-expiry-time` and `creation-time` are handled differently - they are AMQP 1.0 built-in transport headers using the Unix time_t UTC timestamp in milliseconds, and they are not a part of the application headers.
-  3. `icao_location_type` turned from _mandatory_ to _optional_, to be included only when disambiguation is needed. Explained motivation using `LECB BARCELONA FIR` vs. `BARCELONA UIR`.
-  4. Removed references to IWXXM 2.1, because the guidance related to property extraction does not work for versions older than IWXXM 3.0 (year 2018). IWXXM 3.0 significantly changed structure of IWXXM and abandoned the use of OM (Observation Model) schema.
+### 1.0-draft1 (2025-06)
 
+Initial draft for collecting feedback.
+
+### 1.0-draft2 (2025-08-14)
+
+1. Separated into guidance for CP1 (this document), and a "Next" document that contains the preparations for further extensions beyond CP1.
+2. Removed content not directly relevant for CP1:
+   1. External URL links for download of alternative formats (IWXXM will be passed in the message payload)
+   2. Content type `application/url-list`
+   3. Geometry properties (aerodrome coordinates, SIGMET bounding boxes)
+   4. Payload integrity properties that were based on WIS 2.0 WNM, and SWIM TI Yellow Profile 2.0 mandates the se of S/MIME 4.0 for this purpose.
+   5. Technical messages
+3. The only way to send IWXXM is now embedding the data in the AMQP message payload with the content type `application/xml`. All mentions of `links` and `url-list` have been removed.
+4. Discarded `subject` strings of type `DATA_METAR_LOWS_CORRECTION_2025040106450` because they create duplicity to the AMQP application properties, which are a much better filtering mechanism compared to application of wildcard patterns to a subject string (suggestion by Dario di Crescenzo).
+5. The "subject" string now contains `aviation.weather.metar`.
+6. Dropped all `properties.` prefixes, e.g. `properties.start_datetime`. The `properties` object is used in the WIS 2.0 Notification Message (WNM) standard because the WNM notifications conform to the GeoJSON structure. The GeoJSON specification mandates that all custom properties must be placed in a separate `properties` sub-object. In AMQP, however, the application properties concept is the direct equivalent of the GeoJSON properties - it is a list of application-defined data. So, there is no strict need to use prefixes.
+7. New application property `properties.report_status` with values _NORMAL_, _AMENDMENT_, _CORRECTION_.
+8. The new application property `issue_datetime` replaces the previous `properties.pubtime`. The publication time in WIS 2.0 WNM is the creation time of the notification message, so using this terminology for METAR, TAF, or SIGMET issue time was incorrect. In AMQP, the direct equivalent of `properties.pubtime` is the AMQP transport header property `creation-time`.
+9. Added AMQP transport header property `creation-time`.
+10. Rewritten section on `absolute-expiry-time`. The original idea of specifying expiration of 3h for METAR, 12h for TAF, 24h for SIGMET was incorrect.
+11. The guidance for the priority field in AMQP transport header just states that certain message types should have higher priorities than others. For example, a TAF AMD should have higher priority than a regular TAF.
+12. Added mention of _AMQP Messaging with Message Security_ using S/MIME 4.0 as defined in SWIM TI Yellow Profile 2.0, but without further implementation guidance. This section needs to be fleshed out.
+
+### 1.0-draft3 (2025-08-20)
+
+1. Renamed `issue_time` to `issue_datetime` for consistency with other temporal application properties.
+2. Explanation why `absolute-expiry-time` and `creation-time` are handled differently - they are AMQP 1.0 built-in transport headers using the Unix time_t UTC timestamp in milliseconds, and they are not a part of the application headers.
+3. `properties.icao_location_type` turned from _mandatory_ to _optional_, to be included only when disambiguation is needed. Explained motivation using `LECB BARCELONA FIR` vs. `BARCELONA UIR`.
+4. Removed references to IWXXM 2.1, because the guidance related to property extraction does not work for versions older than IWXXM 3.0 (year 2018). IWXXM 3.0 significantly changed structure of IWXXM and abandoned the use of OM (Observation Model) schema.
+
+### 1.0-draft4 (2025-08-21)
+
+Rolled back the abandonement of `properties.<name>` prefixes for application properties. This is based on a discussion with Tom Kralidis (Meteorological Service of Canada, <https://github.com/tomkralidis>) who is the original author of the WIS 2.0 Notification Messages structure (WNM):
+
+1. I the **"-Next"** proposals (beyond CP1) we have `geometry` and `links` prefixes, so leaving out the `property` prefix creates inconsistency with the JSON structure of the WNM messages we take inspiration from.
+2. Using the `property.<name>` prefixes allows for easier interoperability between WIS 2.0 and MET-SWIM.
+3. The WNM structure is based on [STAC (SpatioTemporal Assets Catalogs)](https://stacspec.org) specification.
+4. The JSON structure of WNM notification metadata is based on [STAC Items](https://github.com/radiantearth/stac-spec/blob/master/item-spec/item-spec.md). STAC was created to introduce a standardised way of exposing collections of spatial temporal data, setting up some base guidelines to insure better interoperability (and searching in catalogues).
+5. The STAC Item specification originated the [datetime](https://github.com/radiantearth/stac-spec/blob/master/item-spec/item-spec.md#datetime), [start_datetime](https://github.com/radiantearth/stac-spec/blob/master/commons/common-metadata.md#date-and-time-range) (and `end_datetime`) terminology.
+  
 ## Introduction
 
 This document defines the message structure and properties for AMQP 1.0 messages used in the MET-SWIM (Meteorological System Wide Information Management) implementation of the European Union Common Project Regulation (CP1). It provides guidance for developers and organisations implementing meteorological OPMET data distribution using AMQP 1.0 protocol in line with the SWIM Service definitions.
@@ -64,13 +80,13 @@ This specification takes inspiration from the [WMO WIS 2.0 Notification Message 
 
 The WNM notification specification also guided the design of the notification messages in [OGC API - Environmental Data Retrieval (EDR) Part 2: Publish-Subscribe workflow](https://docs.ogc.org/is/23-057r1/23-057r1.html), which is used, for example, by the UK Met Office's QVA API (Quantitative Volcanic Ash) and is planned to be used by the SADIS API.
 
+The notification metadata in WNM and OGC EDR publish/subscribe is in turn based on [STAC (SpatioTemporal Assets Catalogs)](https://stacspec.org) specification. The JSON structure and property terminology is based on so-called [STAC Items](https://github.com/radiantearth/stac-spec/blob/master/item-spec/item-spec.md).
+
 ### Authors
 
 Editors:
 
 - Boris Burger (IBL)
-  - Further alignment with AMQP, WNM, and incorporating feedback.
-  - Relationship of AMQP properties to IWXXM data model.
 
 Contributions and feedback:
 
@@ -93,6 +109,8 @@ Contributions and feedback:
 - [AMQP Filter Expressions 1.0](https://docs.oasis-open.org/amqp/filtex/v1.0/filtex-v1.0.html)
 - [WMO WIS 2.0 Overview](https://community.wmo.int/en/activity-areas/wis/WIS2-overview)
 - [WMO WIS 2.0 Notification Message Standard](https://wmo-im.github.io/wis2-notification-message/standard/wis2-notification-message-STABLE.html)
+- [STAC (SpatioTemporal Assets Catalogs)](https://stacspec.org)
+- [STAC Item](https://github.com/radiantearth/stac-spec/blob/master/item-spec/item-spec.md)
 - [RFC 3339 - Date and Time on the Internet](https://www.rfc-editor.org/rfc/rfc3339.html)
 - [ICAO Annex 3 - Meteorological Service for International Air Navigation](https://store.icao.int/en/annex-3-meteorological-service-for-international-air-navigation)
 
@@ -268,14 +286,14 @@ Properties in the sections below are divided into categories based on their usag
 
 ```sql
 -- Filter by specific airports
-icao_location_identifier IN ('EBBR', 'EDDF')
+properties.icao_location_identifier IN ('EBBR', 'EDDF')
 
 -- Filter by country prefix
-icao_location_identifier LIKE 'EB%'
+properties.icao_location_identifier LIKE 'EB%'
 
 -- Filter by location and type
-icao_location_identifier LIKE 'EB%' 
-  AND icao_location_type IN ('CTA', 'FIR', 'AD')
+properties.icao_location_identifier LIKE 'EB%' 
+  AND properties.icao_location_type IN ('CTA', 'FIR', 'AD')
 
 -- Filter by topic pattern
 subject LIKE 'weather.aviation.%'
@@ -285,7 +303,7 @@ subject LIKE 'weather.aviation.%'
 
 These properties MUST be present in all meteorological data messages.
 
-#### report_status (mandatory)
+#### properties.report_status (mandatory)
 
 One of the following values:
 
@@ -295,17 +313,17 @@ One of the following values:
 
 This is directly based on the IWXXM `reportStatus` attribute.
 
-#### icao_location_identifier (mandatory)
+#### properties.icao_location_identifier (mandatory)
 
 ICAO identifier of the location. Mandatory for reports that are issued for an aerodrome or an airspace that a 4-letter ICAO location designator can identify.
 
 ```text
-icao_location_identifier: "EBBR"
+properties.icao_location_identifier: "EBBR"
 ```
 
-#### icao_location_type (optional)
+#### properties.icao_location_type (optional)
 
-Type of location identifier. Can be optionally used for disambiguation when the location referred to by the `icao_location_identifier` is not clear.
+Type of location identifier. Can be optionally used for disambiguation when the location referred to by the `properties.icao_location_identifier` is not clear.
 
 **Motivation:** Some countries use the same ICAO code to refer to both the lower FIR and the upper UIR airspace. For example, there are SIGMETs issued for `LECB BARCELONA FIR`, `LECB BARCELONA UIR`, and `LECB BARCELONA FIR/UIR`, depending on which vertical portion of the airspace is affected by the hazard. Including the airspace type information can help users subscribe to the lower (or upper) airspace only.
 
@@ -340,44 +358,44 @@ Example values:
 
 These properties contain date and time information extracted from the IWXXM document.
 
-#### issue_datetime (mandatory)
+#### properties.issue_datetime (mandatory)
 
 [RFC 3339](https://datatracker.ietf.org/doc/html/rfc3339) formatted publication/issue time extracted from `iwxxm:issueTime`:
 
 ```yaml
-issue_datetime: "2025-04-15T14:10:00Z"
+properties.issue_datetime: "2025-04-15T14:10:00Z"
 ```
 
 This property is mandatory for all the CP1 message types.
 
 **Note:** In previous proposals, this was called `pubtime` in reference to WIS 2.0 WNP publication time (`properties.pubtime`). However, the publication time in WNM refers to when the notification message was sent, rather than time of issuing of the meteorological report itself. Time of sending of the notification message is better represented by the `creation-time` in the AMQP transport header.
 
-#### datetime (conditional)
+#### properties.datetime (conditional)
 
 For METAR/SPECI only - observation time in [RFC 3339](https://datatracker.ietf.org/doc/html/rfc3339) format from `iwxxm:observationTime`:
 
 ```yaml
-datetime: "2025-03-31T03:00:00Z"
+properties.datetime: "2025-03-31T03:00:00Z"
 ```
 
 **Note:** Corresponds to `properties.datetime` in WIS 2.0 Notification Messages, see [Properties / Temporal description](https://wmo-im.github.io/wis2-notification-message/standard/wis2-notification-message-STABLE.html#_1_12_properties_temporal_description) in the WNM specification.
 
-#### start_datetime (conditional)
+#### properties.start_datetime (conditional)
 
 For TAF/SIGMET - start of validity period in [RFC 3339](https://datatracker.ietf.org/doc/html/rfc3339) format from `iwxxm:validPeriod`:
 
 ```yaml
-start_datetime: "2025-04-15T14:30:00Z"
+properties.start_datetime: "2025-04-15T14:30:00Z"
 ```
 
-**Note:** `start_datetime` and `end_datetime` properties correspond to the equivalently named properties in the WIS 2.0 Notification Messages. See [Properties / Temporal description](https://wmo-im.github.io/wis2-notification-message/standard/wis2-notification-message-STABLE.html#_1_12_properties_temporal_description) in the WNM specification.
+**Note:** `properties.start_datetime` and `properties.end_datetime` properties correspond to the equivalently named properties in the WIS 2.0 Notification Messages. See [Properties / Temporal description](https://wmo-im.github.io/wis2-notification-message/standard/wis2-notification-message-STABLE.html#_1_12_properties_temporal_description) in the WNM specification.
 
-#### end_datetime (conditional)
+#### properties.end_datetime (conditional)
 
 For TAF/SIGMET - end of validity period in [RFC 3339](https://datatracker.ietf.org/doc/html/rfc3339) format:
 
 ```yaml
-end_datetime: "2025-04-15T18:00:00Z"
+properties.end_datetime: "2025-04-15T18:00:00Z"
 ```
 
 ### AMQP with Message Security
@@ -454,10 +472,11 @@ absolute-expiry-time: 1744823400
 
 # Application Properties
 conformsTo: "https://eur-registry.swim.aero/services/eurocontrol-iwxxm-metar-speci-subscription-and-request-service-10"
-issue_datetime: "2025-04-15T12:02:00Z"
-datetime: "2025-04-15T12:00:00Z"
-icao_location_identifier: "EBBR"
-icao_location_type: "AD"
+properties.issue_datetime: "2025-04-15T12:02:00Z"
+properties.datetime: "2025-04-15T12:00:00Z"
+properties.icao_location_identifier: "EBBR"
+properties.icao_location_type: "AD"
+properties.report_status: "NORMAL"
 
 # Payload
 # [Gzipped IWXXM XML content]
@@ -479,11 +498,12 @@ content-encoding: "gzip"
 
 # Application Properties
 conformsTo: "https://eur-registry.swim.aero/services/eurocontrol-iwxxm-taf-subscription-and-request-service-10"
-issue_datetime: "2025-04-01T06:45:00Z"
-start_datetime: "2025-04-01T06:00:00Z"
-end_datetime: "2025-04-02T06:00:00Z"
-icao_location_identifier: "LOWS"
-icao_location_type: "AD"
+properties.issue_datetime: "2025-04-01T06:45:00Z"
+properties.start_datetime: "2025-04-01T06:00:00Z"
+properties.end_datetime: "2025-04-02T06:00:00Z"
+properties.icao_location_identifier: "LOWS"
+properties.icao_location_type: "AD"
+properties.report_status: "AMENDMENT"
 ```
 
 ### SIGMET Example
@@ -503,15 +523,17 @@ absolute-expiry-time: 1744813130
 
 # Application Properties
 conformsTo: "https://eur-registry.swim.aero/services/eurocontrol-iwxxm-sigmet-subscription-and-request-service-10"
-issue_datetime: "2025-04-15T14:10:00Z"
-start_datetime: "2025-04-15T14:30:00Z"
-end_datetime: "2025-04-15T18:00:00Z"
-icao_location_identifier: "UDDD"
-icao_location_type: "FIR"
+properties.issue_datetime: "2025-04-15T14:10:00Z"
+properties.start_datetime: "2025-04-15T14:30:00Z"
+properties.end_datetime: "2025-04-15T18:00:00Z"
+properties.icao_location_identifier: "UDDD"
+properties.icao_location_type: "FIR"
+properties.report_status: "NORMAL"
 
 # Payload
 # [Gzipped IWXXM XML content]
 ```
+
 ## Appendices
 
 ### Appendix A: Property Extraction from IWXXM
@@ -584,11 +606,11 @@ The guidance is compatible with IWXXM 3.0 and subsequent versions such as 2021-2
 
 | AMQP Property | Report Types | XPath Expression | Description | Example Value |
 |---------------|--------------|------------------|-------------|---------------|
-| `issue_datetime` | ALL | `/iwxxm:*/iwxxm:issueTime` | Issue/publication time from root element | `2025-04-15T14:10:00Z` |
-| `datetime` | METAR, SPECI | `/iwxxm:METAR/iwxxm:observationTime` | Observation time | `2025-03-31T03:00:00Z` |
-| `start_datetime` | TAF, SIGMET | `/iwxxm:*/iwxxm:validPeriod/gml:beginPosition` | Start of validity period | `2025-04-15T14:30:00Z` |
-| `end_datetime` | TAF, SIGMET | `/iwxxm:*/iwxxm:validPeriod/gml:endPosition` | End of validity period | `2025-04-15T18:00:00Z` |
-| `icao_location_identifier` | METAR, SPECI, TAF | `/iwxxm:*/iwxxm:aerodrome/aixm:AirportHeliport/aixm:locationIndicatorICAO` | Aerodrome ICAO code | `EBBR` |
-| `icao_location_identifier` | SIGMET | `/iwxxm:SIGMET/iwxxm:issuingAirTrafficServicesRegion/aixm:Airspace/aixm:designator` | Airspace designator | `UDDD` |
-| `icao_location_type` | METAR, SPECI, TAF | `"AD"` | Always "AD" for aerodrome reports | `AD` |
-| `icao_location_type` | SIGMET | `/iwxxm:SIGMET/iwxxm:issuingAirTrafficServicesRegion/aixm:Airspace/aixm:type` | Airspace type | `FIR`, `UIR`, `CTA`, `OTHER:FIR_UIR` |
+| `properties.issue_datetime` | ALL | `/iwxxm:*/iwxxm:issueTime` | Issue/publication time from root element | `2025-04-15T14:10:00Z` |
+| `properties.datetime` | METAR, SPECI | `/iwxxm:METAR/iwxxm:observationTime` | Observation time | `2025-03-31T03:00:00Z` |
+| `properties.start_datetime` | TAF, SIGMET | `/iwxxm:*/iwxxm:validPeriod/gml:beginPosition` | Start of validity period | `2025-04-15T14:30:00Z` |
+| `properties.end_datetime` | TAF, SIGMET | `/iwxxm:*/iwxxm:validPeriod/gml:endPosition` | End of validity period | `2025-04-15T18:00:00Z` |
+| `properties.icao_location_identifier` | METAR, SPECI, TAF | `/iwxxm:*/iwxxm:aerodrome/aixm:AirportHeliport/aixm:locationIndicatorICAO` | Aerodrome ICAO code | `EBBR` |
+| `properties.icao_location_identifier` | SIGMET | `/iwxxm:SIGMET/iwxxm:issuingAirTrafficServicesRegion/aixm:Airspace/aixm:designator` | Airspace designator | `UDDD` |
+| `properties.icao_location_type` | METAR, SPECI, TAF | `"AD"` | Always "AD" for aerodrome reports | `AD` |
+| `properties.icao_location_type` | SIGMET | `/iwxxm:SIGMET/iwxxm:issuingAirTrafficServicesRegion/aixm:Airspace/aixm:type` | Airspace type | `FIR`, `UIR`, `CTA`, `OTHER:FIR_UIR` |
