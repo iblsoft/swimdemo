@@ -1,0 +1,45 @@
+# Logrotate configuration for IWXXM Collect Separator service
+# This file should be symlinked to /etc/logrotate.d/iwxxm-collect-separate
+
+/opt/SWIMWeather/var/input/log/iwxxm-collect-separate.log {
+    # Rotate daily
+    daily
+    
+    # Keep 7 days of logs
+    rotate 7
+    
+    # Don't error if log file is missing
+    missingok
+    
+    # Don't rotate if log is empty
+    notifempty
+    
+    # Compress rotated logs
+    compress
+    
+    # Delay compression until next rotation cycle
+    delaycompress
+    
+    # Rotate if file exceeds 100MB even if not daily yet
+    size 100M
+    
+    # Create new log file with these permissions
+    create 0640 swim swim
+    
+    # Use date as suffix for rotated files
+    dateext
+    
+    # Append date in YYYYMMDD format
+    dateformat -%Y%m%d
+    
+    # Shared scripts run once after all logs are rotated
+    sharedscripts
+    
+    # Restart or reload service after rotation to reopen log file
+    # The service appends to the log, so we need to ensure it notices the rotation
+    postrotate
+        # Send a harmless signal to ensure output is flushed
+        # SystemD will handle reopening the file
+        systemctl --user kill -s HUP iwxxm-collect-separate.service 2>/dev/null || true
+    endscript
+}
