@@ -531,6 +531,10 @@ class ReportExtractor:
             # Continuous loop
             while self.running:
                 self.scan_folder()
+                # Flush the standard and error outputs, because when running in watch mode
+                # under SystemD, we will not see the output in the journal or log.
+                sys.stdout.flush()
+                sys.stderr.flush()
                 time.sleep(self.poll_interval)
             
             print("Stopped.")
