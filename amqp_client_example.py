@@ -21,6 +21,7 @@ import getpass
 import traceback
 import os, os.path
 import platform
+import socket
 import argparse
 import ssl  # Import to check the SSL backend
 from datetime import datetime, timezone
@@ -30,16 +31,21 @@ from proton.reactor import Container
 from iwxxm_utils import extractReportInformation
 
 class AMQPClient(MessagingHandler):
-    def __init__(self, url, topic, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None):
+    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None):
         super(AMQPClient, self).__init__()
         self.url = url
         self.topic = topic
+        self.num_connections = num_connections
+        self.base_client_id = base_client_id
         self.outputFolderPath = outputFolderPath
         self.ca_cert_path = ca_cert_path
         self.client_cert_path = client_cert_path
         self.client_key_path = client_key_path
         self.client_cert_password = client_cert_password
         self.using_schannel = self.is_using_schannel()
+        self.connections = {}  # Map connection to connection number
+        self.receivers = []  # List of all receivers
+        
         if self.using_schannel:
             print("Qpid Proton SSL backend: SChannel (Windows). Certificates must be imported into the Windows Certificate Store!")
         else:
@@ -62,28 +68,40 @@ class AMQPClient(MessagingHandler):
 
     def on_start(self, event):
         try:
-            if self.url.startswith("amqps"):
-                ssl_domain = SSLDomain(SSLDomain.MODE_CLIENT)
-                ssl_domain.set_peer_authentication(SSLDomain.VERIFY_PEER_NAME)
+            print(f"\nCreating {self.num_connections} parallel connection(s)...")
+            
+            for i in range(self.num_connections):
+                if self.url.startswith("amqps"):
+                    ssl_domain = SSLDomain(SSLDomain.MODE_CLIENT)
+                    ssl_domain.set_peer_authentication(SSLDomain.VERIFY_PEER_NAME)
 
-                if not self.using_schannel:
-                    # OpenSSL is being used, set the certificate details if provided
-                    if self.ca_cert_path:
-                        ssl_domain.set_trusted_ca_db(self.ca_cert_path)
-                    if self.client_cert_path:
-                        ssl_domain.set_credentials(self.client_cert_path, self.client_key_path, self.client_cert_password)
-            else:
-                ssl_domain = None  # No SSL for plain AMQP connections
+                    if not self.using_schannel:
+                        # OpenSSL is being used, set the certificate details if provided
+                        if self.ca_cert_path:
+                            ssl_domain.set_trusted_ca_db(self.ca_cert_path)
+                        if self.client_cert_path:
+                            ssl_domain.set_credentials(self.client_cert_path, self.client_key_path, self.client_cert_password)
+                else:
+                    ssl_domain = None  # No SSL for plain AMQP connections
 
-            connection = event.container.connect(
-                self.url,
-                ssl_domain=ssl_domain,
-            )
-            self.receiver = event.container.create_receiver(connection, source=self.topic)
-            print("Receiver created on:", self.url)
-            print("Waiting for messages...")
+                # Create a unique connection name for each connection
+                connection_name = f"{self.base_client_id}-{i + 1}" if self.base_client_id else f"connection-{i + 1}"
+                
+                connection = event.container.connect(
+                    self.url,
+                    ssl_domain=ssl_domain,
+                )
+                # Set unique container-id for this connection (this is what the broker sees)
+                connection.container = connection_name
+                
+                self.connections[connection] = i + 1  # Store connection number (1-indexed)
+                receiver = event.container.create_receiver(connection, source=self.topic)
+                self.receivers.append(receiver)
+                print(f"  Connection {i + 1}/{self.num_connections}: Receiver '{connection_name}' created on {self.url}")
+            
+            print(f"\nAll {self.num_connections} connection(s) created. Waiting for messages...")
         except Exception as e:
-            print("Error creating receiver:", e)
+            print("Error creating receivers:", e)
             traceback.print_exc()
             if event.connection:
                 event.connection.close()
@@ -91,7 +109,18 @@ class AMQPClient(MessagingHandler):
 
     def on_message(self, event):
         msg = event.message
-        print("\nReceived a message:")
+        # Identify which connection received this message
+        connection = event.connection
+        conn_num = self.connections.get(connection, "?")
+        
+        # For connections other than the first, just print a brief notification
+        if conn_num != 1:
+            subject_info = f" (Subject: {msg.subject})" if msg.subject else ""
+            print(f"\n[Connection {conn_num}] Received a message{subject_info}")
+            return
+        
+        # For the first connection, show full details
+        print(f"\n[Connection {conn_num}] Received a message:")
         
         # Display message properties
         print("Message properties:")
@@ -185,14 +214,19 @@ class AMQPClient(MessagingHandler):
             print("No payload found in the message.")
 
     def on_connection_opened(self, event):
-        print("Connection successfully opened.")
+        conn_num = self.connections.get(event.connection, "?")
+        print(f"[Connection {conn_num}] Connection successfully opened.")
 
     def on_connection_closed(self, event):
-        print("Connection closed by the server.")
+        conn_num = self.connections.get(event.connection, "?")
+        print(f"[Connection {conn_num}] Connection closed by the server.")
+        # Check if all connections are closed
+        # For simplicity, we'll exit when any connection closes
         sys.exit(0)
 
     def on_transport_error(self, event):
-        print("Transport error:", event.transport.condition)
+        conn_num = self.connections.get(event.connection, "?")
+        print(f"[Connection {conn_num}] Transport error:", event.transport.condition)
         if "TLS certificate verification error" in str(event.transport.condition):
             print("TLS certificate verification failed.")
             if platform.system() == "Windows":
@@ -203,9 +237,12 @@ class AMQPClient(MessagingHandler):
             try:
                 # Close the existing connection if it exists
                 if event.connection:
-                    print("Closing the previous connection due to transport error.")
+                    print(f"[Connection {conn_num}] Closing the connection due to transport error.")
                     event.connection.close()
 
+                # Create a unique connection name for the reconnection
+                connection_name = f"{self.base_client_id}-{conn_num}" if self.base_client_id else f"connection-{conn_num}"
+                
                 # Retry with peer verification disabled
                 ssl_domain = SSLDomain(SSLDomain.MODE_CLIENT)
                 ssl_domain.set_peer_authentication(SSLDomain.ANONYMOUS_PEER)
@@ -213,10 +250,19 @@ class AMQPClient(MessagingHandler):
                     self.url,
                     ssl_domain=ssl_domain,
                 )
-                self.receiver = event.container.create_receiver(connection, source=self.topic)
-                print("Reconnected with peer verification disabled on:", self.url)
+                # Set unique container-id for this connection (this is what the broker sees)
+                connection.container = connection_name
+                
+                self.connections[connection] = conn_num  # Reuse the same connection number
+                receiver = event.container.create_receiver(connection, source=self.topic)
+                # Update the receiver in the list
+                for i, r in enumerate(self.receivers):
+                    if r.connection == event.connection:
+                        self.receivers[i] = receiver
+                        break
+                print(f"[Connection {conn_num}] Reconnected with peer verification disabled on:", self.url)
             except Exception as e:
-                print("Error reconnecting with peer verification disabled:", e)
+                print(f"[Connection {conn_num}] Error reconnecting with peer verification disabled:", e)
                 traceback.print_exc()
                 if event.connection:
                     event.connection.close()
@@ -225,11 +271,13 @@ class AMQPClient(MessagingHandler):
                 event.connection.close()
 
     def on_connection_open_failed(self, event):
-        print("Connection open failed:", event.connection.condition)
+        conn_num = self.connections.get(event.connection, "?")
+        print(f"[Connection {conn_num}] Connection open failed:", event.connection.condition)
         event.connection.close()
 
     def on_connection_error(self, event):
-        print("Connection error:", event.connection.condition)
+        conn_num = self.connections.get(event.connection, "?")
+        print(f"[Connection {conn_num}] Connection error:", event.connection.condition)
         event.connection.close()
 
 if __name__ == '__main__':
@@ -250,6 +298,12 @@ if __name__ == '__main__':
         '--topic', '-t', 
         default="origin.a.wis2.com-ibl.data.core.weather.aviation.*", 
         help="AMQP topic/queue to subscribe to (default is the wildcard topic for all OPMET data: 'origin.a.wis2.com-ibl.data.core.weather.aviation.*')"
+    )
+    parser.add_argument(
+        '--num-connections', '-n',
+        type=int,
+        default=1,
+        help="Number of parallel AMQP connections to create (default: 1)"
     )
     default_ca_cert_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "HARICA-TLS-Root-2021-RSA.pem")
     parser.add_argument(
@@ -279,24 +333,29 @@ if __name__ == '__main__':
     s_outputFolderPath = args.output_folder
     url = args.url
     topic = args.topic
+    num_connections = args.num_connections
     ca_cert_path = args.ca_cert
     client_cert_path = args.client_cert
     client_key_path = args.client_key
     client_cert_password = args.client_cert_password
+    hostname = socket.gethostname()  # Get the hostname of the computer
     username = getpass.getuser()  # Get the current user's name
-    client_id = f"swimdemo-amqp-client-example-{username}"  # Append username to client ID
+    base_client_id = f"Python-Client-{hostname}-{username}"  # Base client ID
+    container_id = f"{base_client_id}-container"  # Container ID
     try:
         # Enable frame-level tracing by setting trace=1
         Container(
             AMQPClient(
                 url, topic, 
+                num_connections=num_connections,
+                base_client_id=base_client_id,
                 outputFolderPath=s_outputFolderPath, 
                 ca_cert_path=ca_cert_path, 
                 client_cert_path=client_cert_path, 
                 client_key_path=client_key_path, 
                 client_cert_password=client_cert_password
             ), 
-            container_id=client_id, 
+            container_id=container_id, 
             trace=1
         ).run()
     except Exception as e:
