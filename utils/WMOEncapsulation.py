@@ -1,5 +1,7 @@
 # This code is extracted from IBL.Utils.Formats
 
+from typing import Optional
+
 class I18N:
     """
     Fake internationalization class
@@ -59,7 +61,7 @@ class WMOWriter:
             self.m_f = file
             self.mb_fileOwner = False
         self.i_formatId = formatId
-        self.i_csn: int | None = None
+        self.i_csn: Optional[int] = None
         self.b_zeroTail = True
 
     def _formatIdAsBytes(self) -> bytes:
@@ -92,17 +94,17 @@ class WMOWriter:
     def __del__(self):
         self.close()
 
-    def buildFromHeaderBody(self, s_header: bytes, s_body: bytes, i_csn: int | None = None) -> bytes:
+    def buildFromHeaderBody(self, s_header: bytes, s_body: bytes, i_csn: Optional[int] = None) -> bytes:
         msgAsByteArray = self.joinHeaderAndBody(s_header, s_body)
         return self.buildContent(msgAsByteArray, i_csn)
 
-    def writeFromHeaderBody(self, s_header: bytes, s_body: bytes, i_csn: int | None = None) -> None:
+    def writeFromHeaderBody(self, s_header: bytes, s_body: bytes, i_csn: Optional[int] = None) -> None:
         if self.m_f is None:
             raise RuntimeError(I18N.tr(self, "WMO {self.formatId:02d} Writer is already closed"))
         content = self.buildFromHeaderBody(s_header, s_body, i_csn)
         self.m_f.write(content)
 
-    def write(self, s_headerAndBody: bytes, i_csn: int | None = None) -> None:
+    def write(self, s_headerAndBody: bytes, i_csn: Optional[int] = None) -> None:
         if self.m_f is None:
             raise RuntimeError(I18N.tr(self, "WMO {self.formatId:02d} Writer is already closed"))
         content = self.buildContent(s_headerAndBody, i_csn)
@@ -118,7 +120,7 @@ class WMOWriter:
             self.m_f.close()
         self.m_f = None
 
-    def buildContent(self, s_headerAndBody: bytes, i_csn: int | None = None) -> bytes:
+    def buildContent(self, s_headerAndBody: bytes, i_csn: Optional[int] = None) -> bytes:
         A = ASCII
         oneMessage = bytearray()
         message = bytearray()
