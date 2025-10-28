@@ -1,0 +1,16 @@
+[Unit]
+Description=SWIM Weather IWXXM collect separator
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Restart=always
+RestartSec=5s
+TimeoutStopSec=70
+WorkingDirectory=/opt/SWIMWeather/utils/
+ExecStart=/usr/bin/python3 /opt/SWIMWeather/utils/iwxxm-collect-separate.py -i /opt/SWIMWeather/var/input/upload/ -o /opt/SWIMWeather/var/input/object/ -w --poll-interval 5
+StandardOutput=append:/opt/SWIMWeather/var/input/log/iwxxm-collect-separate.log
+StandardError=append:/opt/SWIMWeather/var/input/log/iwxxm-collect-separate.log
+
+[Install]
+WantedBy=default.target
