@@ -8,6 +8,186 @@ class I18N:
     def tr(obj, text):
         return text
 
+class ASCII:
+
+    SOH = b"\x01"
+    ETX = b"\x03"
+    CR = b"\x0D"
+    LF = b"\x0A"
+    CRCRLF = b"\x0D\x0D\x0A"
+
+############ WMO writer #########################################################
+"""
+WMO file formats description can be found in
+Manual on the Global Telecommunication System (WMO-No. 386),
+chapter SFTP/FTP procedures and file naming convention, page 137
+
+Basic syntax of WMO files
+
+WMO 00 with CSN (Channel Sequence Number)
+00000000-00-SOH-CRCRLF-CSN(NN)-CRCRLF-heading-CRCRLF-body-CRCRLF-ETX
+
+WMO 00 without CSN
+00000000-00-SOH-CRCRLF-heading-CRCRLF-body-CRCRLF-ETX
+
+WMO01
+00000000-01-CRCRLF-heading-CRCRLF-body
+
+"""
+
+class WMOWriter:
+    """
+    ### Creates WMO00 and WMO01 files. ###
+    Usage is as follows:
+    * open the writer <br>
+    `WMOWriter writer(fname)`
+    * wite the data
+    ```
+        writer.write(mymessage, sequence_number<optional>)
+        writer.write(_otherwmomessage_)
+    ```
+    * close the writer
+        `writer.close()`
+    """
+
+    def __init__(self, fname=None, file=None, formatId: int = 0) -> None:
+        self.m_f = None
+        if fname is not None:
+            self.m_f = open(fname, "w+b")
+            self.mb_fileOwner = True
+        else:
+            self.m_f = file
+            self.mb_fileOwner = False
+        self.i_formatId = formatId
+        self.i_csn: int | None = None
+        self.b_zeroTail = True
+
+    def _formatIdAsBytes(self) -> bytes:
+        if self.i_formatId > 0:
+            return b"01"
+        return b"00"
+
+    @property
+    def formatId(self) -> int:
+        """
+        Format identifier
+        """
+        return self.i_formatId
+
+    @formatId.setter
+    def formatId(self, value: int):
+        self.i_formatId = value
+
+    @property
+    def zeroTail(self) -> bool:
+        """
+        Specifies if zero tail should be written
+        """
+        return self.b_zeroTail
+
+    @zeroTail.setter
+    def zeroTail(self, value: bool):
+        self.b_zeroTail = value
+
+    def __del__(self):
+        self.close()
+
+    def buildFromHeaderBody(self, s_header: bytes, s_body: bytes, i_csn: int | None = None) -> bytes:
+        msgAsByteArray = self.joinHeaderAndBody(s_header, s_body)
+        return self.buildContent(msgAsByteArray, i_csn)
+
+    def writeFromHeaderBody(self, s_header: bytes, s_body: bytes, i_csn: int | None = None) -> None:
+        if self.m_f is None:
+            raise RuntimeError(I18N.tr(self, "WMO {self.formatId:02d} Writer is already closed"))
+        content = self.buildFromHeaderBody(s_header, s_body, i_csn)
+        self.m_f.write(content)
+
+    def write(self, s_headerAndBody: bytes, i_csn: int | None = None) -> None:
+        if self.m_f is None:
+            raise RuntimeError(I18N.tr(self, "WMO {self.formatId:02d} Writer is already closed"))
+        content = self.buildContent(s_headerAndBody, i_csn)
+        self.m_f.write(content)
+
+    def close(self) -> None:
+        if self.m_f is None:
+            return
+        if self.b_zeroTail:
+            self.m_f.write(b"00000000")
+            self.m_f.write(self._formatIdAsBytes())
+        if self.mb_fileOwner:
+            self.m_f.close()
+        self.m_f = None
+
+    def buildContent(self, s_headerAndBody: bytes, i_csn: int | None = None) -> bytes:
+        A = ASCII
+        oneMessage = bytearray()
+        message = bytearray()
+        if self.i_formatId == 0:
+            # build WMO00
+            message.extend(A.SOH)
+            message.extend(A.CRCRLF)
+            if i_csn is not None:
+                # 00000000-00-SOH-CRCRLF-NNN(NN)-CRCRLF-heading-CRCRLF-body-CRCRLF-ETX
+                if i_csn > 999:
+                    s_csn = bytes(f"{i_csn:05d}", "ascii")
+                else:
+                    s_csn = bytes(f"{i_csn:03d}", "ascii")
+                message.extend(s_csn)
+                message.extend(A.CRCRLF)
+            # else 00000000-00-SOH-CRCRLF-heading-CRCRLF-body-CRCRLF-ETX
+            message.extend(s_headerAndBody)
+            message.extend(A.CRCRLF)
+            message.extend(A.ETX)
+        else:
+            # build WMO01
+            # 00000000-01-CRCRLF-heading-CRCRLF-body
+            message.extend(A.CRCRLF)
+            message.extend(s_headerAndBody)
+        oneMessage.extend(bytes(f"{len(message):08d}", "ascii"))
+        oneMessage.extend(self._formatIdAsBytes())
+        oneMessage.extend(message)  # body
+        return bytes(oneMessage)
+
+    def joinHeaderAndBody(self, s_header: bytes, s_body: bytes) -> bytes:
+        msgAsByteArray = bytearray(s_header)
+        msgAsByteArray.extend(ASCII.CRCRLF)
+        msgAsByteArray.extend(s_body)
+        return bytes(msgAsByteArray)
+
+
+############ WMO 01 format writer #########################################################
+
+
+class WMO01Writer:
+    """
+    WMO01 writer of data.
+
+    Usage is as follows:
+        # open the writer
+        WMO01Writer writer(fname)
+        # write the data
+        writer.write(mymessage)
+        writer.write(otherwmomessage)
+        # close the writer
+        writer.close()
+    """
+
+    def __init__(self, fname=None, file=None):
+        self.writer = WMOWriter(fname, file, formatId=1)
+
+    @property
+    def formatId(self):
+        return self.writer.formatId
+
+    def close(self):
+        self.writer.close()
+
+    def write(self, s_headerAndBody: bytes):
+        self.writer.write(s_headerAndBody)
+
+    def writeFromHeaderBody(self, s_header: bytes, s_body: bytes) -> None:
+        self.writer.writeFromHeaderBody(s_header, s_body, i_csn=None)
+
 class WMOReader:
     """
     ### Reads WMO01 and WMO00 files.

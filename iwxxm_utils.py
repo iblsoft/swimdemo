@@ -2,7 +2,7 @@ from io import StringIO
 import xml.etree.ElementTree as ET
 import sys
 import re
-from WMOEncapsulation import WMOReader
+from utils.WMOEncapsulation import WMOReader
 from io import BytesIO
 from typing import Union
 
