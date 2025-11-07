@@ -27,11 +27,11 @@ import ssl  # Import to check the SSL backend
 from datetime import datetime, timezone
 from proton import ConnectionException, SSLDomain, SASL
 from proton.handlers import MessagingHandler
-from proton.reactor import Container
+from proton.reactor import Container, DurableSubscription, AtLeastOnce
 from iwxxm_utils import extractReportInformation
 
 class AMQPClient(MessagingHandler):
-    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None):
+    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None, username=None, password=None, durable=False, subscription_name=None):
         super(AMQPClient, self).__init__()
         self.url = url
         self.topic = topic
@@ -42,6 +42,10 @@ class AMQPClient(MessagingHandler):
         self.client_cert_path = client_cert_path
         self.client_key_path = client_key_path
         self.client_cert_password = client_cert_password
+        self.username = username
+        self.password = password
+        self.durable = durable
+        self.subscription_name = subscription_name
         self.using_schannel = self.is_using_schannel()
         self.connections = {}  # Map connection to connection number
         self.receivers = []  # List of all receivers
@@ -50,6 +54,12 @@ class AMQPClient(MessagingHandler):
             print("Qpid Proton SSL backend: SChannel (Windows). Certificates must be imported into the Windows Certificate Store!")
         else:
             print("Qpid Proton SSL backend: OpenSSL.")
+        
+        if self.durable:
+            print("Durable subscription mode: ENABLED. Messages will be queued while disconnected.")
+        else:
+            print("Durable subscription mode: DISABLED. Messages sent while disconnected will be lost.")
+        
         if not os.path.exists(self.outputFolderPath):
             os.makedirs(self.outputFolderPath)
 
@@ -65,6 +75,14 @@ class AMQPClient(MessagingHandler):
                 if "SSL" in str(e) or "not supported" in str(e):
                     return True  # SChannel is being used
         return False  # Default to OpenSSL for non-Windows platforms
+
+    def clean_topic_name(self, topic):
+        """Clean and shorten the topic name for use in subscription names.
+        Removes the 'origin.a.wis2.com-ibl.data.core.' prefix if present."""
+        prefix = "origin.a.wis2.com-ibl.data.core."
+        if topic.startswith(prefix):
+            return topic[len(prefix):]
+        return topic
 
     def on_start(self, event):
         try:
@@ -90,14 +108,36 @@ class AMQPClient(MessagingHandler):
                 connection = event.container.connect(
                     self.url,
                     ssl_domain=ssl_domain,
+                    user=self.username,
+                    password=self.password,
                 )
                 # Set unique container-id for this connection (this is what the broker sees)
                 connection.container = connection_name
                 
                 self.connections[connection] = i + 1  # Store connection number (1-indexed)
-                receiver = event.container.create_receiver(connection, source=self.topic)
+                
+                # Create receiver with durability options if requested
+                if self.durable:
+                    # Create a unique subscription name for each connection
+                    if self.subscription_name:
+                        sub_name = f"{self.subscription_name}-{i + 1}"
+                    else:
+                        # Auto-generate subscription name including the cleaned topic
+                        # Note: The broker will prefix this with the container ID automatically
+                        cleaned_topic = self.clean_topic_name(self.topic)
+                        sub_name = f"sub-{cleaned_topic}"
+                    receiver = event.container.create_receiver(
+                        connection, 
+                        source=self.topic,
+                        name=sub_name,
+                        options=DurableSubscription()
+                    )
+                    print(f"  Connection {i + 1}/{self.num_connections}: Durable receiver '{connection_name}' (subscription: '{sub_name}') created on {self.url}")
+                else:
+                    receiver = event.container.create_receiver(connection, source=self.topic)
+                    print(f"  Connection {i + 1}/{self.num_connections}: Receiver '{connection_name}' created on {self.url}")
+                
                 self.receivers.append(receiver)
-                print(f"  Connection {i + 1}/{self.num_connections}: Receiver '{connection_name}' created on {self.url}")
             
             print(f"\nAll {self.num_connections} connection(s) created. Waiting for messages...")
         except Exception as e:
@@ -249,12 +289,32 @@ class AMQPClient(MessagingHandler):
                 connection = event.container.connect(
                     self.url,
                     ssl_domain=ssl_domain,
+                    user=self.username,
+                    password=self.password,
                 )
                 # Set unique container-id for this connection (this is what the broker sees)
                 connection.container = connection_name
                 
                 self.connections[connection] = conn_num  # Reuse the same connection number
-                receiver = event.container.create_receiver(connection, source=self.topic)
+                
+                # Create receiver with the same durability options
+                if self.durable:
+                    if self.subscription_name:
+                        sub_name = f"{self.subscription_name}-{conn_num}"
+                    else:
+                        # Auto-generate subscription name including the cleaned topic
+                        # Note: The broker will prefix this with the container ID automatically
+                        cleaned_topic = self.clean_topic_name(self.topic)
+                        sub_name = f"sub-{cleaned_topic}"
+                    receiver = event.container.create_receiver(
+                        connection, 
+                        source=self.topic,
+                        name=sub_name,
+                        options=DurableSubscription()
+                    )
+                else:
+                    receiver = event.container.create_receiver(connection, source=self.topic)
+                
                 # Update the receiver in the list
                 for i, r in enumerate(self.receivers):
                     if r.connection == event.connection:
@@ -327,6 +387,25 @@ if __name__ == '__main__':
         '--client-cert-password', 
         help="Optional. Password for the client certificate file (e.g., .p12 file) used for mutual TLS authentication."
     )
+    parser.add_argument(
+        '--username', 
+        help="Optional. Username for AMQP SASL authentication. If provided, password should also be provided."
+    )
+    parser.add_argument(
+        '--password', 
+        help="Optional. Password for AMQP SASL authentication. If provided, username should also be provided."
+    )
+    parser.add_argument(
+        '--durable', 
+        action='store_true',
+        help="Enable durable subscription mode. Messages sent while the client is disconnected will be queued "
+             "and delivered when the client reconnects. Requires the broker to support durable subscriptions."
+    )
+    parser.add_argument(
+        '--subscription-name', 
+        help="Optional. Custom name for the durable subscription. If not provided, an auto-generated name based "
+             "on the client ID will be used. This is only relevant when --durable is enabled."
+    )
     args = parser.parse_args()
 
     # Use parsed arguments
@@ -338,9 +417,13 @@ if __name__ == '__main__':
     client_cert_path = args.client_cert
     client_key_path = args.client_key
     client_cert_password = args.client_cert_password
+    username = args.username
+    password = args.password
+    durable = args.durable
+    subscription_name = args.subscription_name
     hostname = socket.gethostname()  # Get the hostname of the computer
-    username = getpass.getuser()  # Get the current user's name
-    base_client_id = f"Python-Client-{hostname}-{username}"  # Base client ID
+    usernameOS = getpass.getuser()  # Get the current user's name
+    base_client_id = f"Python-Client-{hostname}-{usernameOS}"  # Base client ID
     container_id = f"{base_client_id}-container"  # Container ID
     try:
         # Enable frame-level tracing by setting trace=1
@@ -353,7 +436,11 @@ if __name__ == '__main__':
                 ca_cert_path=ca_cert_path, 
                 client_cert_path=client_cert_path, 
                 client_key_path=client_key_path, 
-                client_cert_password=client_cert_password
+                client_cert_password=client_cert_password,
+                username=username,
+                password=password,
+                durable=durable,
+                subscription_name=subscription_name
             ), 
             container_id=container_id, 
             trace=1
