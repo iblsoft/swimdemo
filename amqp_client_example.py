@@ -31,7 +31,7 @@ from proton.reactor import Container, DurableSubscription, AtLeastOnce
 from iwxxm_utils import extractReportInformation
 
 class AMQPClient(MessagingHandler):
-    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None, username=None, password=None, durable=False, subscription_name=None):
+    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None, username=None, password=None, durable=False, subscription_name=None, insecure=False):
         super(AMQPClient, self).__init__()
         self.url = url
         self.topic = topic
@@ -46,6 +46,7 @@ class AMQPClient(MessagingHandler):
         self.password = password
         self.durable = durable
         self.subscription_name = subscription_name
+        self.insecure = insecure
         self.using_schannel = self.is_using_schannel()
         self.connections = {}  # Map connection to connection number
         self.receivers = []  # List of all receivers
@@ -59,6 +60,9 @@ class AMQPClient(MessagingHandler):
             print("Durable subscription mode: ENABLED. Messages will be queued while disconnected.")
         else:
             print("Durable subscription mode: DISABLED. Messages sent while disconnected will be lost.")
+        
+        if self.insecure:
+            print("WARNING: SSL certificate verification is DISABLED. Use only for testing!")
         
         if not os.path.exists(self.outputFolderPath):
             os.makedirs(self.outputFolderPath)
@@ -86,19 +90,98 @@ class AMQPClient(MessagingHandler):
 
     def on_start(self, event):
         try:
+            # Validate certificate files exist before attempting connection
+            if self.url.startswith("amqps") and not self.using_schannel and not self.insecure:
+                if self.ca_cert_path:
+                    if not os.path.exists(self.ca_cert_path):
+                        abs_path = os.path.abspath(self.ca_cert_path)
+                        print(f"ERROR: CA certificate file not found: {self.ca_cert_path}")
+                        print(f"  Absolute path checked: {abs_path}")
+                        print(f"  Current working directory: {os.getcwd()}")
+                        sys.exit(1)
+                    else:
+                        abs_path = os.path.abspath(self.ca_cert_path)
+                        print(f"Using CA certificate: {abs_path}")
+                
+                if self.client_cert_path:
+                    if not os.path.exists(self.client_cert_path):
+                        abs_path = os.path.abspath(self.client_cert_path)
+                        print(f"ERROR: Client certificate file not found: {self.client_cert_path}")
+                        print(f"  Absolute path checked: {abs_path}")
+                        sys.exit(1)
+                
+                if self.client_key_path:
+                    if not os.path.exists(self.client_key_path):
+                        abs_path = os.path.abspath(self.client_key_path)
+                        print(f"ERROR: Client key file not found: {self.client_key_path}")
+                        print(f"  Absolute path checked: {abs_path}")
+                        sys.exit(1)
+            
             print(f"\nCreating {self.num_connections} parallel connection(s)...")
             
             for i in range(self.num_connections):
                 if self.url.startswith("amqps"):
-                    ssl_domain = SSLDomain(SSLDomain.MODE_CLIENT)
-                    ssl_domain.set_peer_authentication(SSLDomain.VERIFY_PEER_NAME)
+                    try:
+                        ssl_domain = SSLDomain(SSLDomain.MODE_CLIENT)
+                    except Exception as e:
+                        print(f"ERROR: Failed to create SSL domain: {e}")
+                        print("This might indicate Qpid Proton was not compiled with SSL support.")
+                        raise
 
                     if not self.using_schannel:
                         # OpenSSL is being used, set the certificate details if provided
-                        if self.ca_cert_path:
-                            ssl_domain.set_trusted_ca_db(self.ca_cert_path)
-                        if self.client_cert_path:
-                            ssl_domain.set_credentials(self.client_cert_path, self.client_key_path, self.client_cert_password)
+                        if self.insecure:
+                            # Insecure mode - try minimal SSL configuration
+                            try:
+                                # Some Qpid Proton versions require setting peer auth even for anonymous
+                                ssl_domain.set_peer_authentication(SSLDomain.ANONYMOUS_PEER)
+                            except Exception as e:
+                                print(f"Warning: Could not set anonymous peer authentication: {e}")
+                                print("Attempting connection without peer authentication setting...")
+                                # Continue without setting peer authentication
+                        else:
+                            # Normal mode with certificate validation
+                            ca_set = False
+                            if self.ca_cert_path:
+                                try:
+                                    # Try to set the CA cert - might be a file or directory
+                                    ssl_domain.set_trusted_ca_db(self.ca_cert_path)
+                                    ca_set = True
+                                except Exception as e:
+                                    print(f"Warning: Failed to set CA certificate from {self.ca_cert_path}: {e}")
+                            
+                            if not ca_set:
+                                # Try system defaults
+                                print("Attempting to use system default CA certificates...")
+                                for ca_path in ["/etc/ssl/certs", "/etc/pki/tls/certs", "/usr/share/ca-certificates"]:
+                                    if os.path.exists(ca_path):
+                                        try:
+                                            ssl_domain.set_trusted_ca_db(ca_path)
+                                            print(f"Using system CA certificates from {ca_path}")
+                                            ca_set = True
+                                            break
+                                        except Exception as e:
+                                            print(f"Failed to use {ca_path}: {e}")
+                                
+                                if not ca_set and not self.insecure:
+                                    print("ERROR: Could not set any CA certificates for verification!")
+                                    raise Exception("No valid CA certificate path found")
+                            
+                            if self.client_cert_path:
+                                ssl_domain.set_credentials(self.client_cert_path, self.client_key_path, self.client_cert_password)
+                            
+                            # Set peer authentication after CA configuration
+                            try:
+                                ssl_domain.set_peer_authentication(SSLDomain.VERIFY_PEER_NAME)
+                            except Exception as e:
+                                print(f"ERROR: Failed to set peer authentication: {e}")
+                                raise
+                    else:
+                        # Windows/SChannel
+                        if self.insecure:
+                            ssl_domain.set_peer_authentication(SSLDomain.ANONYMOUS_PEER)
+                        else:
+                            ssl_domain.set_peer_authentication(SSLDomain.VERIFY_PEER_NAME)
                 else:
                     ssl_domain = None  # No SSL for plain AMQP connections
 
@@ -285,6 +368,14 @@ class AMQPClient(MessagingHandler):
                 
                 # Retry with peer verification disabled
                 ssl_domain = SSLDomain(SSLDomain.MODE_CLIENT)
+                
+                if not self.using_schannel:
+                    # Set CA cert before peer authentication if available
+                    if self.ca_cert_path:
+                        ssl_domain.set_trusted_ca_db(self.ca_cert_path)
+                    if self.client_cert_path:
+                        ssl_domain.set_credentials(self.client_cert_path, self.client_key_path, self.client_cert_password)
+                
                 ssl_domain.set_peer_authentication(SSLDomain.ANONYMOUS_PEER)
                 connection = event.container.connect(
                     self.url,
@@ -406,6 +497,11 @@ if __name__ == '__main__':
         help="Optional. Custom name for the durable subscription. If not provided, an auto-generated name based "
              "on the client ID will be used. This is only relevant when --durable is enabled."
     )
+    parser.add_argument(
+        '--insecure', '-k',
+        action='store_true',
+        help="INSECURE: Disable SSL certificate verification. Use only for testing with self-signed certificates."
+    )
     args = parser.parse_args()
 
     # Use parsed arguments
@@ -421,6 +517,7 @@ if __name__ == '__main__':
     password = args.password
     durable = args.durable
     subscription_name = args.subscription_name
+    insecure = args.insecure
     hostname = socket.gethostname()  # Get the hostname of the computer
     usernameOS = getpass.getuser()  # Get the current user's name
     base_client_id = f"Python-Client-{hostname}-{usernameOS}"  # Base client ID
@@ -440,7 +537,8 @@ if __name__ == '__main__':
                 username=username,
                 password=password,
                 durable=durable,
-                subscription_name=subscription_name
+                subscription_name=subscription_name,
+                insecure=insecure
             ), 
             container_id=container_id, 
             trace=1
