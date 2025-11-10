@@ -21,6 +21,8 @@ The example client behaves like this:
 
 ### Dependencies
 
+Before installing `python-qpid-proton` make sure you have `openssl-devel`, `libffi-devel`, and `python3-devel` packages installed (these are names of the packages on RHEL and its derivatives).
+
 The only package that needs to be installed on top of what is provided in the Python standard library is `python-qpid-proton`:
 
 ```bash
