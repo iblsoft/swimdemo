@@ -9,7 +9,6 @@ SIGMETs-PetoFarkas/
 # Ignore all .pyc files
 *.pyc
 # Ignore certificates and private keys
-*.pem
 *.crt
 iwxxm_early_issue_stats.py
 amqp-spec-numbering.css
