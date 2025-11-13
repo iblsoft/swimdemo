@@ -222,7 +222,8 @@ class AMQPClient(MessagingHandler):
                 
                 self.receivers.append(receiver)
             
-            print(f"\nAll {self.num_connections} connection(s) created. Waiting for messages...")
+            print(f"\nAll {self.num_connections} connection(s) created.")
+            print("You should see connections being opened below...")
         except Exception as e:
             print("Error creating receivers:", e)
             traceback.print_exc()
