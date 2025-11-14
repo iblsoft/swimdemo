@@ -304,7 +304,16 @@ class AMQPClient(MessagingHandler):
                     else:
                         extension = "unknown"
                     # Create output file path from the folder, message subject, and the extension
-                    if msg.subject:
+                    # Check if application properties contain the required fields for filename construction
+                    if (msg.properties and 
+                        'properties.report_status' in msg.properties and 
+                        'properties.icao_location_identifier' in msg.properties and 
+                        'properties.issue_datetime' in msg.properties and
+                        msg.subject):
+                        # Construct filename from subject and application properties
+                        filename = f"{msg.subject}_{msg.properties['properties.icao_location_identifier']}_{msg.properties['properties.report_status']}_{msg.properties['properties.issue_datetime']}.{extension}"
+                        filePath = os.path.join(self.outputFolderPath, filename)
+                    elif msg.subject:
                         filePath = os.path.join(self.outputFolderPath, f"{msg.subject}.{extension}")
                     else:
                         # If no subject provided, create a file name based on the current UTC time
@@ -448,8 +457,8 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--topic', '-t', 
-        default="origin.a.wis2.com-ibl.data.core.weather.aviation.*", 
-        help="AMQP topic/queue to subscribe to (default is the wildcard topic for all OPMET data: 'origin.a.wis2.com-ibl.data.core.weather.aviation.*')"
+        default="weather.aviation.*", 
+        help="AMQP topic/queue to subscribe to (default is the wildcard topic for all OPMET data: 'weather.aviation.*')"
     )
     parser.add_argument(
         '--num-connections', '-n',
