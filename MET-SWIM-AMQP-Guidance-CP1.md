@@ -602,6 +602,6 @@ The guidance is compatible with IWXXM 3.0 and subsequent versions such as 2021-2
 | `properties.start_datetime` | TAF, SIGMET | `/iwxxm:*/iwxxm:validPeriod/gml:beginPosition` | Start of validity period | `2025-04-15T14:30:00Z` |
 | `properties.end_datetime` | TAF, SIGMET | `/iwxxm:*/iwxxm:validPeriod/gml:endPosition` | End of validity period | `2025-04-15T18:00:00Z` |
 | `properties.icao_location_identifier` | METAR, SPECI, TAF | `/iwxxm:*/iwxxm:aerodrome/aixm:AirportHeliport/aixm:locationIndicatorICAO` | Aerodrome ICAO code | `EBBR` |
-| `properties.icao_location_identifier` | SIGMET | `/iwxxm:SIGMET/iwxxm:issuingAirTrafficServicesRegion/aixm:Airspace/aixm:designator` | Airspace designator | `UDDD` |
+| `properties.icao_location_identifier` | SIGMET | `/iwxxm:SIGMET/iwxxm:issuingAirTrafficServicesRegion/aixm:Airspace//aixm:designator` | Airspace designator | `UDDD` |
 | `properties.icao_location_type` | METAR, SPECI, TAF | `"AD"` | Always "AD" for aerodrome reports | `AD` |
 | `properties.icao_location_type` | SIGMET | `/iwxxm:SIGMET/iwxxm:issuingAirTrafficServicesRegion/aixm:Airspace/aixm:type` | Airspace type | `FIR`, `UIR`, `CTA`, `OTHER:FIR_UIR` |
