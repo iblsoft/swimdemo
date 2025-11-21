@@ -23,6 +23,9 @@ import os, os.path
 import platform
 import socket
 import argparse
+import tempfile
+
+# Import proton and other SSL-related modules
 import ssl  # Import to check the SSL backend
 from datetime import datetime, timezone
 from proton import ConnectionException, SSLDomain, SASL
@@ -440,6 +443,69 @@ class AMQPClient(MessagingHandler):
         conn_num = self.connections.get(event.connection, "?")
         print(f"[Connection {conn_num}] Connection error:", event.connection.condition)
         event.connection.close()
+    
+def primer_connection(url, ca_cert_path, client_cert_path, client_key_path):
+    """
+    Establish a primer TLS 1.2 connection to work around server-side TLS version negotiation issues.
+    Some AMQP brokers have bugs where they need a successful TLS 1.2 connection first.
+    """
+    import subprocess
+    import re
+    
+    # Extract hostname and port from URL
+    match = re.match(r'amqps?://([^:]+):(\d+)', url)
+    if not match:
+        print("Warning: Could not parse URL for primer connection")
+        return False
+    
+    hostname, port = match.groups()
+    
+    print(f"\n=== Establishing primer TLS 1.2 connection to {hostname}:{port} ===")
+    print("This works around a server-side issue with TLS version negotiation.")
+    
+    cmd = [
+        'openssl', 's_client',
+        '-connect', f'{hostname}:{port}',
+        '-CAfile', ca_cert_path,
+        '-cert', client_cert_path,
+        '-key', client_key_path,
+        '-tls1_2',
+        '-brief'  # Brief output mode
+    ]
+    
+    try:
+        # Send a quick connection and immediate close
+        process = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        
+        # Send Q to quit immediately after connection
+        stdout, _ = process.communicate(input='Q\n', timeout=10)
+        
+        if 'Verification: OK' in stdout or 'Verify return code: 0' in stdout:
+            print("✓ Primer connection successful")
+            return True
+        else:
+            print("⚠ Primer connection completed but verification unclear")
+            print("Proceeding anyway...")
+            return True
+            
+    except subprocess.TimeoutExpired:
+        process.kill()
+        print("⚠ Primer connection timed out, proceeding anyway...")
+        return False
+    except FileNotFoundError:
+        print("⚠ openssl command not found, skipping primer connection")
+        return False
+    except Exception as e:
+        print(f"⚠ Primer connection error: {e}")
+        print("Proceeding anyway...")
+        return False
+
 
 if __name__ == '__main__':
     # Parse command-line arguments
@@ -512,6 +578,14 @@ if __name__ == '__main__':
         action='store_true',
         help="INSECURE: Disable SSL certificate verification. Use only for testing with self-signed certificates."
     )
+    parser.add_argument(
+        '--primer-connection',
+        action='store_true',
+        help="Establish a primer TLS 1.2 connection before the main AMQP connection. "
+             "This works around server-side TLS version negotiation bugs in some AMQP brokers. "
+             "RECOMMENDED for connections to swim.meteo.lt and other brokers that have issues with TLS 1.3. "
+             "Use this if you experience random 'ssl/tls alert illegal parameter' errors."
+    )
     args = parser.parse_args()
 
     # Use parsed arguments
@@ -528,31 +602,35 @@ if __name__ == '__main__':
     durable = args.durable
     subscription_name = args.subscription_name
     insecure = args.insecure
+    primer_connection_enabled = args.primer_connection
     hostname = socket.gethostname()  # Get the hostname of the computer
     usernameOS = getpass.getuser()  # Get the current user's name
     base_client_id = f"Python-Client-{hostname}-{usernameOS}"  # Base client ID
     container_id = f"{base_client_id}-container"  # Container ID
+    
+    # Establish primer connection if requested
+    if primer_connection_enabled and url.startswith("amqps") and client_cert_path and client_key_path:
+        primer_connection(url, ca_cert_path, client_cert_path, client_key_path)
+        print()  # Add blank line for readability
+    
     try:
         # Enable frame-level tracing by setting trace=1
-        Container(
-            AMQPClient(
-                url, topic, 
-                num_connections=num_connections,
-                base_client_id=base_client_id,
-                outputFolderPath=s_outputFolderPath, 
-                ca_cert_path=ca_cert_path, 
-                client_cert_path=client_cert_path, 
-                client_key_path=client_key_path, 
-                client_cert_password=client_cert_password,
-                username=username,
-                password=password,
-                durable=durable,
-                subscription_name=subscription_name,
-                insecure=insecure
-            ), 
-            container_id=container_id, 
-            trace=1
-        ).run()
+        client = AMQPClient(
+            url, topic, 
+            num_connections=num_connections,
+            base_client_id=base_client_id,
+            outputFolderPath=s_outputFolderPath, 
+            ca_cert_path=ca_cert_path, 
+            client_cert_path=client_cert_path, 
+            client_key_path=client_key_path, 
+            client_cert_password=client_cert_password,
+            username=username,
+            password=password,
+            durable=durable,
+            subscription_name=subscription_name,
+            insecure=insecure
+        )
+        Container(client, container_id=container_id, trace=1).run()
     except Exception as e:
         print("Error during container run:", e)
         sys.exit(1)
