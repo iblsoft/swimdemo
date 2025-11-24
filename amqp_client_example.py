@@ -299,13 +299,23 @@ class AMQPClient(MessagingHandler):
                 else:
                     decoded_payload = payload.decode('utf-8')
 
-                # If output folder path is provided, save the payload to a file
-                if self.outputFolderPath:
+                # Check if this is a technical message (by subject prefix)
+                is_technical_message = msg.subject and msg.subject.startswith('technical')
+                is_json_content = msg.content_type and 'json' in msg.content_type.lower()
+                filePath = None  # Initialize filePath
+                
+                # For technical JSON messages, print to terminal instead of saving to disk
+                if is_technical_message and is_json_content:
+                    print("Technical JSON message - displaying payload:")
+                    print(decoded_payload)
+                elif self.outputFolderPath:
+                    # If output folder path is provided, save the payload to a file
                     # Detect extension from content type
                     if msg.content_type:
                         extension = msg.content_type.split('/')[-1]
                     else:
                         extension = "unknown"
+                    
                     # Create output file path from the folder, message subject, and the extension
                     # Check if application properties contain the required fields for filename construction
                     if (msg.properties and 
@@ -317,7 +327,14 @@ class AMQPClient(MessagingHandler):
                         filename = f"{msg.subject}_{msg.properties['properties.icao_location_identifier']}_{msg.properties['properties.report_status']}_{msg.properties['properties.issue_datetime']}.{extension}"
                         filePath = os.path.join(self.outputFolderPath, filename)
                     elif msg.subject:
-                        filePath = os.path.join(self.outputFolderPath, f"{msg.subject}.{extension}")
+                        # Check if subject already has a file extension
+                        subject_base, subject_ext = os.path.splitext(msg.subject)
+                        if subject_ext:
+                            # Subject already has an extension, use it as-is
+                            filePath = os.path.join(self.outputFolderPath, msg.subject)
+                        else:
+                            # No extension in subject, append one
+                            filePath = os.path.join(self.outputFolderPath, f"{msg.subject}.{extension}")
                     else:
                         # If no subject provided, create a file name based on the current UTC time
                         # and the extension
@@ -328,22 +345,36 @@ class AMQPClient(MessagingHandler):
                         while os.path.exists(filePath):
                             filePath = os.path.join(self.outputFolderPath, f"{current_time}_{counter}.{extension}")
                             counter += 1
+                    
+                    # Create directory structure if it doesn't exist
+                    file_directory = os.path.dirname(filePath)
+                    if file_directory and not os.path.exists(file_directory):
+                        os.makedirs(file_directory, exist_ok=True)
+                    
                     # Save the payload to the file
                     with open(filePath, 'wb') as f:
                         f.write(decompressed_payload)
                     print(f"Payload saved to {filePath}")
                 
-                # Use the helper function to extract report information
-                if self.outputFolderPath:
-                    context = f"AMQP message saved to '{filePath}'"
+                # Skip IWXXM extraction for technical messages or non-XML content
+                if is_technical_message:
+                    pass  # Already handled above for JSON technical messages
                 else:
-                    context = f"AMQP message with subject '{msg.subject}'" if msg.subject else "AMQP message"
-                extracted_info_list = extractReportInformation(decoded_payload, context)
-                print(f"Extracted IWXXM Report Information: Found {len(extracted_info_list)} report(s)")
-                for i, extracted_info in enumerate(extracted_info_list, 1):
-                    print(f"  Report {i}:")
-                    for key, value in extracted_info.items():
-                        print(f"    {key}: {value}")
+                    # Use the helper function to extract report information, but only for XML content
+                    is_xml_content = msg.content_type and 'xml' in msg.content_type.lower()
+                    if is_xml_content:
+                        if self.outputFolderPath and filePath:
+                            context = f"AMQP message saved to '{filePath}'"
+                        else:
+                            context = f"AMQP message with subject '{msg.subject}'" if msg.subject else "AMQP message"
+                        extracted_info_list = extractReportInformation(decoded_payload, context)
+                        print(f"Extracted IWXXM Report Information: Found {len(extracted_info_list)} report(s)")
+                        for i, extracted_info in enumerate(extracted_info_list, 1):
+                            print(f"  Report {i}:")
+                            for key, value in extracted_info.items():
+                                print(f"    {key}: {value}")
+                    else:
+                        print(f"Non-XML content type ({msg.content_type}) - skipping IWXXM extraction")
             except Exception as e:
                 print("Error decoding payload:", e)
         else:
