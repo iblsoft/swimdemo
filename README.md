@@ -2,41 +2,43 @@
 
 # IBL SWIM Demonstration - Client examples
 
-This is a repository of example scripts for interaction with AMQP and EDR services on swim.iblsoft.com.
+This is a repository of example scripts for interaction with AMQP on `swim.iblsoft.com`, or on any other MET-SWIM AMQP server that follows the [EUROCONTROL MET3SG AMQP Message Guidance](https://swim-eurocontrol.atlassian.net/wiki/spaces/MSS/pages/638156804/AMQP+Message+Structure+in+MET-SWIM), for example, `swim.dwd.de`. 
 
 ## AMQP 1.0 client
 
 [amqp_client_example.py](https://github.com/iblsoft/swimdemo/blob/main/amqp_client_example.py) is an AMQP 1.0 client based on [Apache Qpid Proton](https://github.com/apache/qpid-proton) (AMQP messaging client).
 
-For details regarding the AMQP message and application properties please [read our documentation](https://swim.iblsoft.com/swimdemo/latest/SWIM-Weather-Public-Demonstration/AMQP-Data-Subscriptions/) on the AMQP subscription details.
+For details regarding the AMQP message and application properties, please [read our documentation](https://swim.iblsoft.com/swimdemo/latest/SWIM-Weather-Public-Demonstration/AMQP-Data-Subscriptions/) on the AMQP subscription details.
 
 The example client behaves like this:
 
-- Connects to `amqp.swim.iblsoft.com:5672`
+- Connects to an AMQPS broker on URL that you provide (by default `amqp.swim.iblsoft.com:5672`).
 - The client subscribes to a wildcard topic `weather.aviation.*` to receive METAR, SPECI, TAF, SIGMET
 - When an AMQP message is received, the script:
   - Displays the AMQP message properties and the custom application properties
   - If an IWXXM payload is present (with or without gzip compression), it will uncompress the payload, extract the basic issue time, observation time, validity, airspace and aerodrome information from the report. This is mostly to show how to access the XML and verify that the values from the XML match the AMQP application properties correctly.
-  - The uncompressed IWXXM payloads are stored into `received_data` subfolder. The file name is created using:
+  - The uncompressed IWXXM payloads are stored in the `received_data` subfolder. The file name is created using:
     - A combination of the message subject and application properties `properties.icao_location_identifier`,
     `properties.report_status` and `properties.issue_datetime`, if all are present.
     - Otherwise, the filename is based on the message subject, if present.
-    - Otheriwse, a timestamp is used to name the file.
+    - Otherwise, a timestamp is used to name the file.
 
 ### Dependencies
 
+The AMQP client requires Python 3.9+. The only package that needs to be installed on top of what is provided in the Python standard library is `python-qpid-proton`. Before installing the package, make sure you have `openssl-devel`, `libffi-devel`, and `python3-devel` packages installed (these are names of the packages on RHEL and its derivatives). They are necessary for building the Qpid Proton package.
 
-
-The only package that needs to be installed on top of what is provided in the Python standard library is `python-qpid-proton`. Before installing the package, make sure you have `openssl-devel`, `libffi-devel`, and `python3-devel` packages installed (these are names of the packages on RHEL and its derivatives). They are necessary for bulding the Qpid Proton "wheel".
-
+You can install `python-qpid-proton` in a virtual environment under your user account, if you do not wish to install it for all users of your server:
 ```bash
-python -m pip install python-qpid-proton
+python -m venv ~/amqp-client-env
+~/amqp-client-env/venv/bin/pip install python-qpid-proton
+
+# Verify that the script loads properly
+~/amqp-client-env/venv/bin/python amqp_client_example.py --help
 ```
 
-On Ubuntu Linux you should install from your distribution using:
-
+To install as root in your OS instead:
 ```bash
-sudo apt install python3-qpid-proton
+python -m pip install python-qpid-proton
 ```
 
 ### Command line options
@@ -54,18 +56,40 @@ You can override the default AMQP URL, topic, CA certificate, output folder, aut
 | `--client-cert` | Optional. Path to the client certificate file for mutual TLS authentication. If not provided, only the server's authenticity will be verified |
 | `--client-key` | Optional. Path to the client private key file for mutual TLS authentication. If not provided, only the server's authenticity will be verified |
 | `--client-cert-password` | Optional. Password for the client certificate file (e.g., .p12 file) used for mutual TLS authentication |
-| `--username` | Optional. Username for AMQP SASL authentication. If provided, password should also be provided |
+| `--username` | Optional. Username for AMQP SASL authentication. If provided, the password should also be provided |
 | `--password` | Optional. Password for AMQP SASL authentication. If provided, username should also be provided |
 | `--durable` | Enable durable subscription mode. Messages sent while the client is disconnected will be queued and delivered when the client reconnects. Requires the broker to support durable subscriptions |
 | `--subscription-name` | Optional. Custom name for the durable subscription. If not provided, an auto-generated name based on the client ID will be used. This is only relevant when `--durable` is enabled |
 
-#### Authentication
+#### Authentication with Username and Password
 
 The client supports AMQP SASL username/password authentication if the server requires it:
 
 ```bash
 python amqp_client_example.py --username myuser --password mypass
 ```
+
+#### Authentication with Client Certificates (mTLS)
+
+If the AMQP server requires mTLS with client certificates, you can run the script as follows:
+
+```bash
+~/amqp-client-env/venv/bin/python amqp_client_example.py \
+-u amqps://SERVER:5671 \
+-t weather.aviation.metar \
+--user USERNAME --password 'PASSWORD' \
+--client-cert CLIENT-CERT.crt \
+--client-key CLIENT-KEY.key \
+--ca-cert HARICA-bundle.pem
+```
+
+Notes:
+- `-u amqps://SERVER:5671`: SERVER is the hostname of the server you are connecting to. Port 5671 is the standard AMQPS port for TLS connections; however, if the AMQP server exposes mTLS on a different network port, it should be replaced with a different port number.
+- `--user USERNAME`: If the AMQP server requires a username to be provided, you can specify it using this option.
+- `--password PASSWORD`: If the AMQP server requires a password to be provided, provide it using this option.
+- `--client-cert CLIENT-CERT.crt`: This is the path to your client certificate.
+- `--client-key CLIENT-KEY.key`: Your private key for the certificate.
+- `--ca-cert HARICA-bundle.pem`: If the AMQP server is identifying itself with HARICA staging certificates, you can use the certificate bundle from this repository to verify them.
 
 #### Durable Subscriptions
 
