@@ -60,6 +60,8 @@ You can override the default AMQP URL, topic, CA certificate, output folder, aut
 | `--password` | Optional. Password for AMQP SASL authentication. If provided, username should also be provided |
 | `--durable` | Enable durable subscription mode. Messages sent while the client is disconnected will be queued and delivered when the client reconnects. Requires the broker to support durable subscriptions |
 | `--subscription-name` | Optional. Custom name for the durable subscription. If not provided, an auto-generated name based on the client ID will be used. This is only relevant when `--durable` is enabled |
+| `--insecure` | Optional. Completely disable SSL certificate verification (both certificate chain and hostname). Client certificates will still be sent if provided. Use only for testing with self-signed certificates. |
+| `--skip-hostname-verification` | Optional. Skip SSL hostname/domain verification but still verify the server's certificate chain. Use this when connecting via IP address or when the domain name doesn't match the certificate. The server certificate must still be signed by a trusted CA. Client certificates will still be sent and verified by the server. |
 
 #### Authentication with Username and Password
 
