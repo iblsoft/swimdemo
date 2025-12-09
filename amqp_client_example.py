@@ -34,7 +34,7 @@ from proton.reactor import Container, DurableSubscription, AtLeastOnce
 from iwxxm_utils import extractReportInformation
 
 class AMQPClient(MessagingHandler):
-    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None, username=None, password=None, durable=False, subscription_name=None, insecure=False):
+    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None, username=None, password=None, durable=False, subscription_name=None, insecure=False, skip_hostname_verification=False):
         super(AMQPClient, self).__init__()
         self.url = url
         self.topic = topic
@@ -50,6 +50,7 @@ class AMQPClient(MessagingHandler):
         self.durable = durable
         self.subscription_name = subscription_name
         self.insecure = insecure
+        self.skip_hostname_verification = skip_hostname_verification
         self.using_schannel = self.is_using_schannel()
         self.connections = {}  # Map connection to connection number
         self.receivers = []  # List of all receivers
@@ -65,7 +66,11 @@ class AMQPClient(MessagingHandler):
             print("Durable subscription mode: DISABLED. Messages sent while disconnected will be lost.")
         
         if self.insecure:
-            print("WARNING: SSL certificate verification is DISABLED. Use only for testing!")
+            print("WARNING: SSL certificate verification is COMPLETELY DISABLED (server cert chain and hostname).")
+            print("         Client certificates will still be sent if provided. Use only for testing!")
+        elif self.skip_hostname_verification:
+            print("WARNING: SSL hostname verification is DISABLED. Server certificate chain will still be verified.")
+            print("         Use this when connecting via IP address or mismatched domain name.")
         
         if not os.path.exists(self.outputFolderPath):
             os.makedirs(self.outputFolderPath)
@@ -133,17 +138,8 @@ class AMQPClient(MessagingHandler):
 
                     if not self.using_schannel:
                         # OpenSSL is being used, set the certificate details if provided
-                        if self.insecure:
-                            # Insecure mode - try minimal SSL configuration
-                            try:
-                                # Some Qpid Proton versions require setting peer auth even for anonymous
-                                ssl_domain.set_peer_authentication(SSLDomain.ANONYMOUS_PEER)
-                            except Exception as e:
-                                print(f"Warning: Could not set anonymous peer authentication: {e}")
-                                print("Attempting connection without peer authentication setting...")
-                                # Continue without setting peer authentication
-                        else:
-                            # Normal mode with certificate validation
+                        # Step 1: Set CA certificates (unless in insecure mode)
+                        if not self.insecure:
                             ca_set = False
                             if self.ca_cert_path:
                                 try:
@@ -166,23 +162,35 @@ class AMQPClient(MessagingHandler):
                                         except Exception as e:
                                             print(f"Failed to use {ca_path}: {e}")
                                 
-                                if not ca_set and not self.insecure:
+                                if not ca_set:
                                     print("ERROR: Could not set any CA certificates for verification!")
                                     raise Exception("No valid CA certificate path found")
-                            
-                            if self.client_cert_path:
-                                ssl_domain.set_credentials(self.client_cert_path, self.client_key_path, self.client_cert_password)
-                            
-                            # Set peer authentication after CA configuration
-                            try:
+                        
+                        # Step 2: Always set client credentials if provided (for mutual TLS)
+                        if self.client_cert_path:
+                            ssl_domain.set_credentials(self.client_cert_path, self.client_key_path, self.client_cert_password)
+                        
+                        # Step 3: Set peer authentication based on security flags
+                        try:
+                            if self.insecure:
+                                # Insecure mode - no verification at all
+                                ssl_domain.set_peer_authentication(SSLDomain.ANONYMOUS_PEER)
+                            elif self.skip_hostname_verification:
+                                # Verify certificate chain but not hostname
+                                ssl_domain.set_peer_authentication(SSLDomain.VERIFY_PEER)
+                            else:
+                                # Normal mode - verify both certificate chain and hostname
                                 ssl_domain.set_peer_authentication(SSLDomain.VERIFY_PEER_NAME)
-                            except Exception as e:
-                                print(f"ERROR: Failed to set peer authentication: {e}")
-                                raise
+                        except Exception as e:
+                            print(f"ERROR: Failed to set peer authentication: {e}")
+                            raise
                     else:
                         # Windows/SChannel
+                        # Note: Client certificates are handled via Windows Certificate Store
                         if self.insecure:
                             ssl_domain.set_peer_authentication(SSLDomain.ANONYMOUS_PEER)
+                        elif self.skip_hostname_verification:
+                            ssl_domain.set_peer_authentication(SSLDomain.VERIFY_PEER)
                         else:
                             ssl_domain.set_peer_authentication(SSLDomain.VERIFY_PEER_NAME)
                 else:
@@ -410,16 +418,22 @@ class AMQPClient(MessagingHandler):
                 # Create a unique connection name for the reconnection
                 connection_name = f"{self.base_client_id}-{conn_num}" if self.base_client_id else f"connection-{conn_num}"
                 
-                # Retry with peer verification disabled
+                # Retry with peer verification disabled (fallback to ANONYMOUS_PEER)
                 ssl_domain = SSLDomain(SSLDomain.MODE_CLIENT)
                 
                 if not self.using_schannel:
-                    # Set CA cert before peer authentication if available
+                    # Set CA cert if available (even for fallback, to maintain consistency)
                     if self.ca_cert_path:
-                        ssl_domain.set_trusted_ca_db(self.ca_cert_path)
+                        try:
+                            ssl_domain.set_trusted_ca_db(self.ca_cert_path)
+                        except Exception:
+                            pass  # Ignore errors in fallback mode
+                    
+                    # Always set client credentials if provided (for mutual TLS)
                     if self.client_cert_path:
                         ssl_domain.set_credentials(self.client_cert_path, self.client_key_path, self.client_cert_password)
                 
+                # Use ANONYMOUS_PEER as fallback after TLS verification failure
                 ssl_domain.set_peer_authentication(SSLDomain.ANONYMOUS_PEER)
                 connection = event.container.connect(
                     self.url,
@@ -455,7 +469,7 @@ class AMQPClient(MessagingHandler):
                     if r.connection == event.connection:
                         self.receivers[i] = receiver
                         break
-                print(f"[Connection {conn_num}] Reconnected with peer verification disabled on:", self.url)
+                print(f"[Connection {conn_num}] Reconnected with peer verification disabled (fallback mode) on:", self.url)
             except Exception as e:
                 print(f"[Connection {conn_num}] Error reconnecting with peer verification disabled:", e)
                 traceback.print_exc()
@@ -607,7 +621,16 @@ if __name__ == '__main__':
     parser.add_argument(
         '--insecure', '-k',
         action='store_true',
-        help="INSECURE: Disable SSL certificate verification. Use only for testing with self-signed certificates."
+        help="INSECURE: Completely disable SSL certificate verification (both certificate chain and hostname). "
+             "Client certificates will still be sent if provided. Use only for testing with self-signed certificates."
+    )
+    parser.add_argument(
+        '--skip-hostname-verification',
+        action='store_true',
+        help="Skip SSL hostname/domain verification but still verify the server's certificate chain. "
+             "Use this when connecting via IP address or when the domain name doesn't match the certificate. "
+             "The server certificate must still be signed by a trusted CA. "
+             "Client certificates will still be sent and verified by the server."
     )
     parser.add_argument(
         '--primer-connection',
@@ -633,6 +656,7 @@ if __name__ == '__main__':
     durable = args.durable
     subscription_name = args.subscription_name
     insecure = args.insecure
+    skip_hostname_verification = args.skip_hostname_verification
     primer_connection_enabled = args.primer_connection
     hostname = socket.gethostname()  # Get the hostname of the computer
     usernameOS = getpass.getuser()  # Get the current user's name
@@ -659,7 +683,8 @@ if __name__ == '__main__':
             password=password,
             durable=durable,
             subscription_name=subscription_name,
-            insecure=insecure
+            insecure=insecure,
+            skip_hostname_verification=skip_hostname_verification
         )
         Container(client, container_id=container_id, trace=1).run()
     except Exception as e:
