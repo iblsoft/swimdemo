@@ -151,21 +151,12 @@ Application properties:
   geometry.coordinate.latitude: 50.83
   geometry.coordinate.longitude: -0.28
   geometry.type: Point
-  links[0].href: https://localhost/weather.aviation.taf_918.xml
-  links[0].rel: update
-  links[0].type: application/xml
-  links[1].href: https://localhost/collections/iwxxm-taf/locations/icao:EGKA?datetime=2025-11-14T15:00:00Z/2025-11-14T20:00:00Z
-  links[1].rel: item
-  links[1].type: application/zip
   properties.end_datetime: 2025-11-14T20:00:00Z
   properties.icao_location_identifier: EGKA
   properties.icao_location_type: AD
-  properties.integrity.method: sha512
-  properties.integrity.value: a492152aea00829d9bdd6865689895435a842744d117cc2c5c0518a2a76efb5e2babf163191df1891d2a8fccaefb7c8918846e781f39d6089486416ad0ed040c
   properties.issue_datetime: 2025-11-14T18:11:00Z
   properties.report_status: AMENDMENT
   properties.start_datetime: 2025-11-14T15:00:00Z
-  topic: weather.aviation.taf
 Payload saved to received_data/weather.aviation.taf_EGKA_AMENDMENT_2025-11-14T18:11:00Z.xml
 Extracted IWXXM Report Information: Found 1 report(s)
   Report 1:
@@ -181,7 +172,7 @@ Extracted IWXXM Report Information: Found 1 report(s)
 
 ### Verifying the server's certificate
 
-*Note:* Normally the AMQP port 5672 is reserved for unencrypted communications. The *Artemis ActiveMQ* broker supports unencrypted connections, but we have chosen to disable this option and only allow SSL connections. The connection to 5672 thus requires SSL, but does not strictly require verification of the server's certificate.
+*Note:* Normally the AMQP port 5672 is reserved for unencrypted communications. The *Artemis ActiveMQ* broker supports unencrypted connections, but we have chosen to disable this option on <swim.iblsoft.com> and only allow SSL connections. The connection to 5672 thus requires SSL, but does not strictly require verification of the server's certificate.
 
 The client will attempt to verify the server's authenticity using the HARICA staging root certificate.
 
