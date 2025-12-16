@@ -23,11 +23,18 @@ The example client behaves like this:
     - Otherwise, the filename is based on the message subject, if present.
     - Otherwise, a timestamp is used to name the file.
 
-### Dependencies
+### Installation & Dependencies
 
-The AMQP client requires Python 3.9+. The only package that needs to be installed on top of what is provided in the Python standard library is `python-qpid-proton`. Before installing the package, make sure you have `openssl-devel`, `libffi-devel`, and `python3-devel` packages installed (these are names of the packages on RHEL and its derivatives). They are necessary for building the Qpid Proton package.
+The AMQP client requires Python 3.9 or later and the `python-qpid-proton` module, which can be installed using **pip**.
 
-You can install `python-qpid-proton` in a virtual environment under your user account, if you do not wish to install it for all users of your server:
+Before installing `python-qpid-proton`, make sure you have the following packages installed in your Linux distribution, otherwise the installation will fail:
+- `openssl-devel`,
+- `libffi-devel`,
+- `python3-devel`,
+- `gcc`.
+
+We suggest you install `python-qpid-proton` in a virtual environment under a regular user account (unless you wish to install it for all users of your server):
+
 ```bash
 python -m venv ~/amqp-client-env
 ~/amqp-client-env/venv/bin/pip install python-qpid-proton
@@ -36,10 +43,14 @@ python -m venv ~/amqp-client-env
 ~/amqp-client-env/venv/bin/python amqp_client_example.py --help
 ```
 
+Note that Python 3.10+ will likely skip the `venv` subfolder, so `~/amqp-client-env/bin/pip` and `~/amqp-client-env/bin/python` are used instead.
+
 To install as root in your OS instead:
 ```bash
 python -m pip install python-qpid-proton
 ```
+
+We are mostly testing with the `python-qpid-proton` version 0.40.0, which is available through **pip**. Some Linux distributions contain packages for Qpid Proton 0.37, but it is very likely that the version will not work and show SSL errors.
 
 ### Command line options
 
