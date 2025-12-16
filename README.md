@@ -79,7 +79,7 @@ You can override the default AMQP URL, topic, CA certificate, output folder, aut
 The client supports AMQP SASL username/password authentication if the server requires it:
 
 ```bash
-python amqp_client_example.py --username myuser --password mypass
+python amqp_client_example.py -u amqps://SERVER:5674 --username USERNAME --password 'PASSWORD' -t 'weather.aviation.*'
 ```
 
 #### Authentication with Client Certificates (mTLS)
