@@ -577,13 +577,14 @@ if __name__ == '__main__':
         default=1,
         help="Number of parallel AMQP connections to create (default: 1)"
     )
-    default_ca_cert_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "HARICA-TLS-Root-2021-RSA.pem")
+    default_ca_cert_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "HARICA-bundle.pem")
     parser.add_argument(
         '--ca-cert', '-c', 
         default=default_ca_cert_path,
-        help=f"Path to the CA certificate file to override the default HARICA staging root certificate (default: '{default_ca_cert_path}'). "
-             "On Windows, the certificate must be added to 'Trusted Root Certification Authorities' "
-             "using certmgr.msc."
+        help=f"Path to the CA certificate .pem bundle, which contains, in the case "
+        "of HARICA, all the relevant HARICA root and staging CA certs. On Windows, "
+        "the certificate must be added to 'Trusted Root Certification Authorities' "
+        "using certmgr.msc"
     )
     parser.add_argument(
         '--client-cert', 
