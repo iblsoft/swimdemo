@@ -25,15 +25,17 @@ The example client behaves like this:
 
 ### Installation & Dependencies
 
+#### Installing with pip into a Python virtual environment
+
 The AMQP client requires Python 3.9 or later and the `python-qpid-proton` module, which can be installed using **pip**.
 
-Before installing `python-qpid-proton`, make sure you have the following packages installed in your Linux distribution, otherwise the installation will fail:
+Before installing `python-qpid-proton`, make sure you have the following packages installed in your Linux distribution; otherwise, the installation will fail:
 - `openssl-devel`,
 - `libffi-devel`,
 - `python3-devel`,
 - `gcc`.
 
-We suggest you install `python-qpid-proton` in a virtual environment under a regular user account (unless you wish to install it for all users of your server):
+Create a virtual environment under a regular user account:
 
 ```bash
 python -m venv ~/amqp-client-env
@@ -50,7 +52,18 @@ To install as root in your OS instead:
 python -m pip install python-qpid-proton
 ```
 
-We are mostly testing with the `python-qpid-proton` version 0.40.0, which is available through **pip**. Some Linux distributions contain packages for Qpid Proton 0.37, but it is very likely that the version will not work and show SSL errors.
+We are mostly testing with the `python-qpid-proton` version 0.40.0, which is available through **pip**. 
+
+#### Installing Qpid Proton from Linux Distribution
+
+This is an example for Ubuntu 24.04, where the AMQP client will work with the system python and Qpid Proton installed from Ubuntu repositories.
+```bash
+# Install Qpid Proton module
+sudo apt install python-qpid-proton
+
+# Verify that the script loads properly
+python amqp_client_example.py --help
+```
 
 ### Command line options
 
@@ -63,7 +76,7 @@ You can override the default AMQP URL, topic, CA certificate, output folder, aut
 | `-u, --url` | AMQP(S) URL to connect to. Use `amqps://` for SSL connections or `amqp://` for unencrypted connections (default: `amqps://amqp.swim.iblsoft.com:5672`) |
 | `-t, --topic` | AMQP topic/queue to subscribe to (default is the wildcard topic for all OPMET data: `weather.aviation.*`) |
 | `-n, --num-connections` | Number of parallel AMQP connections to create (default: 1) |
-| `-c, --ca-cert` | Path to the CA certificate file to override the default HARICA staging root certificate. On Windows, the certificate must be added to 'Trusted Root Certification Authorities' using certmgr.msc |
+| `-c, --ca-cert` | Path to the CA certificate .pem bundle, which contains, in the case of HARICA, all the relevant HARICA root and staging CA certs. On Windows, the certificate must be added to 'Trusted Root Certification Authorities' using certmgr.msc |
 | `--client-cert` | Optional. Path to the client certificate file for mutual TLS authentication. If not provided, only the server's authenticity will be verified |
 | `--client-key` | Optional. Path to the client private key file for mutual TLS authentication. If not provided, only the server's authenticity will be verified |
 | `--client-cert-password` | Optional. Password for the client certificate file (e.g., .p12 file) used for mutual TLS authentication |
