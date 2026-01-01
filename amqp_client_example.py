@@ -562,9 +562,9 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--url', '-u', 
-        default="amqps://amqp.swim.iblsoft.com:5672", 
+        default="amqps://swim.iblsoft.com:5674", 
         help="AMQP(S) URL to connect to. Use 'amqps://' for SSL connections or 'amqp://' for unencrypted "
-         "connections (default: 'amqps://amqp.swim.iblsoft.com:5672')."
+         "connections (default: 'amqps://swim.iblsoft.com:5674')."
     )
     parser.add_argument(
         '--topic', '-t', 

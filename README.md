@@ -12,7 +12,7 @@ For details regarding the AMQP message and application properties, please [read 
 
 The example client behaves like this:
 
-- Connects to an AMQPS broker on URL that you provide (by default `amqp.swim.iblsoft.com:5672`).
+- Connects to an AMQPS broker on URL that you provide (by default `amqps://swim.iblsoft.com:5674`).
 - The client subscribes to a wildcard topic `weather.aviation.*` to receive METAR, SPECI, TAF, SIGMET
 - When an AMQP message is received, the script:
   - Displays the AMQP message properties and the custom application properties
@@ -73,7 +73,7 @@ You can override the default AMQP URL, topic, CA certificate, output folder, aut
 |--------|-------------|
 | `-h, --help` | Show help message and exit |
 | `-o, --output-folder` | Folder to store received message data (default: `received_data`) |
-| `-u, --url` | AMQP(S) URL to connect to. Use `amqps://` for SSL connections or `amqp://` for unencrypted connections (default: `amqps://amqp.swim.iblsoft.com:5672`) |
+| `-u, --url` | AMQP(S) URL to connect to. Use `amqps://` for SSL connections or `amqp://` for unencrypted connections (default: `amqps://swim.iblsoft.com:5674`) |
 | `-t, --topic` | AMQP topic/queue to subscribe to (default is the wildcard topic for all OPMET data: `weather.aviation.*`) |
 | `-n, --num-connections` | Number of parallel AMQP connections to create (default: 1) |
 | `-c, --ca-cert` | Path to the CA certificate .pem bundle, which contains, in the case of HARICA, all the relevant HARICA root and staging CA certs. On Windows, the certificate must be added to 'Trusted Root Certification Authorities' using certmgr.msc |
@@ -185,9 +185,7 @@ Extracted IWXXM Report Information: Found 1 report(s)
 
 ### Verifying the server's certificate
 
-*Note:* Normally the AMQP port 5672 is reserved for unencrypted communications. The *Artemis ActiveMQ* broker supports unencrypted connections, but we have chosen to disable this option on <swim.iblsoft.com> and only allow SSL connections. The connection to 5672 thus requires SSL, but does not strictly require verification of the server's certificate.
-
-The client will attempt to verify the server's authenticity using the HARICA staging root certificate.
+The client will attempt to verify the server's authenticity using the HARICA operational or staging root certificates.
 
 - On Windows 11 you will need to add the HARICA staging root certificate using Windows built-in *certmgr* tool as explained [in the documentation](https://swim.iblsoft.com/swimdemo/latest/SWIM-Weather-Public-Demonstration/Working-with-Certificates/Importing-HARICA-root-certificate-on-Windows/). This is because the Windows build of Qpid Proton uses the Windows system's TLS library SChannel, rather than OpenSSL.
 - For Linux and other non-Windows platforms where Qpid Proton is using OpenSSL the HARICA certificate is provided in a .pem file.
