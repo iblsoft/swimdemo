@@ -381,7 +381,7 @@ def generate_poisson_intervals(rate, duration, fluctuation=0.5):
 
 
 async def run_load_test(client, avg_rps, duration, icao_codes=None, verbose=False, fluctuation=0.5, 
-                        max_connections=10, force_close=False, time_mode='single', trivial=False):
+                        max_connections=10, force_close=False, time_mode='single', trivial=False, insecure=False):
     """
     Run a load test with variable request rates using async requests.
     
@@ -396,6 +396,7 @@ async def run_load_test(client, avg_rps, duration, icao_codes=None, verbose=Fals
         force_close: Force close connections after each request (disables keep-alive)
         time_mode: Temporal query mode ('single' or 'none')
         trivial: Make trivial requests to base endpoint only
+        insecure: Skip SSL certificate verification
     """
     print(f"Starting EDR load test (ASYNC mode)...")
     print(f"Endpoint:        {client.base_url}")
@@ -417,7 +418,8 @@ async def run_load_test(client, avg_rps, duration, icao_codes=None, verbose=Fals
     connector = aiohttp.TCPConnector(
         limit=max_connections,           # Limit total connections
         limit_per_host=max_connections,  # Limit connections per host
-        force_close=force_close          # Force close connections if requested
+        force_close=force_close,         # Force close connections if requested
+        ssl=False if insecure else None  # Disable SSL verification if insecure
     )
     async with aiohttp.ClientSession(connector=connector) as session:
         client.session = session
@@ -665,7 +667,19 @@ Examples:
         help='Make trivial requests to base endpoint only (no collections/locations). Useful for baseline performance testing.'
     )
     
+    parser.add_argument(
+        '--insecure',
+        action='store_true',
+        help='Skip SSL certificate verification (use for self-signed certificates). WARNING: Use only in testing!'
+    )
+    
     args = parser.parse_args()
+    
+    # Warn about insecure mode
+    if args.insecure:
+        print("WARNING: SSL certificate verification is disabled (--insecure)", file=sys.stderr)
+        print("         Use this only in testing environments!", file=sys.stderr)
+        print()
     
     # Validate arguments
     if args.rps <= 0:
@@ -687,7 +701,10 @@ Examples:
     # Single request mode
     if args.single:
         async def single_request():
-            connector = aiohttp.TCPConnector(limit=1)
+            connector = aiohttp.TCPConnector(
+                limit=1,
+                ssl=False if args.insecure else None
+            )
             async with aiohttp.ClientSession(connector=connector) as session:
                 client.session = session
                 print(f"Making single request for {args.single}...")
@@ -722,7 +739,10 @@ Examples:
     async def run_test_with_locations():
         """Fetch locations and run the load test."""
         # Use a simple session for fetching locations
-        connector = aiohttp.TCPConnector(limit=5)
+        connector = aiohttp.TCPConnector(
+            limit=5,
+            ssl=False if args.insecure else None
+        )
         async with aiohttp.ClientSession(connector=connector) as session:
             client.session = session
             
@@ -738,7 +758,8 @@ Examples:
                     max_connections=args.max_connections,
                     force_close=args.force_close,
                     time_mode=args.time_mode,
-                    trivial=True
+                    trivial=True,
+                    insecure=args.insecure
                 )
                 return 0
             
@@ -779,7 +800,8 @@ Examples:
                 max_connections=args.max_connections,
                 force_close=args.force_close,
                 time_mode=args.time_mode,
-                trivial=False
+                trivial=False,
+                insecure=args.insecure
             )
             return 0
     
