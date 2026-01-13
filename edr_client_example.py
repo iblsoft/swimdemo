@@ -28,6 +28,7 @@ import numpy as np
 from urllib.parse import urljoin
 import base64
 from http import HTTPStatus
+import platform
 
 def get_http_status_description(status_code):
     """
@@ -146,26 +147,33 @@ class EDRClient:
             print(f"Warning: Error fetching locations: {e}", file=sys.stderr)
             return None
     
-    async def get_metar(self, icao_code, datetime_str=None):
+    async def get_metar(self, icao_code, datetime_str=None, time_mode='single'):
         """
         Request METAR data for a specific aerodrome and time.
         
         Args:
             icao_code: 4-letter ICAO airport code
             datetime_str: Optional datetime string (YYYY-MM-DDTHH:MM). If None, generates random.
+            time_mode: Temporal query mode - 'single' or 'none'
             
         Returns:
             tuple: (success: bool, status_code: int, response_time: float, data: bytes or None, url: str)
         """
-        if datetime_str is None:
-            datetime_str = self.get_random_datetime()
-        
         # Build the request URL
         url = f"{self.base_url}/collections/{self.collection}/locations/{icao_code}"
-        params = {'datetime': datetime_str}
         
-        # Build the path for display (without base URL)
-        request_path = f"/collections/{self.collection}/locations/{icao_code}?datetime={datetime_str}"
+        # Build params and path based on time mode
+        if time_mode == 'none':
+            params = {}
+            request_path = f"/collections/{self.collection}/locations/{icao_code}"
+        elif time_mode == 'single':
+            if datetime_str is None:
+                datetime_str = self.get_random_datetime()
+            params = {'datetime': datetime_str}
+            request_path = f"/collections/{self.collection}/locations/{icao_code}?datetime={datetime_str}"
+        else:
+            # Future time modes can be added here
+            raise ValueError(f"Unsupported time_mode: {time_mode}")
         
         # Prepare headers with authentication if available
         headers = {}
@@ -218,6 +226,70 @@ class EDRClient:
                 self.response_times.append(response_time)
                 self.response_times_by_status[-1].append(response_time)
             return False, -1, response_time, None, request_path
+    
+    async def get_trivial(self):
+        """
+        Make a trivial request to the base EDR endpoint (no subpaths or parameters).
+        Useful for baseline performance testing.
+        
+        Returns:
+            tuple: (success: bool, status_code: int, response_time: float, data: bytes or None, url: str)
+        """
+        # Request just the base URL
+        url = self.base_url
+        request_path = url.split('://', 1)[1].split('/', 1)[1] if '/' in url.split('://', 1)[1] else '/'
+        
+        # Prepare headers with authentication if available
+        headers = {}
+        if self.auth_header:
+            headers['Authorization'] = self.auth_header
+        
+        try:
+            start_time = time.time()
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with self.session.get(url, headers=headers, timeout=timeout) as response:
+                response_time = time.time() - start_time
+                status_code = response.status
+                
+                # Read response data
+                if status_code == 200:
+                    data = await response.read()
+                else:
+                    data = None
+                
+                # Update stats (thread-safe)
+                async with self._stats_lock:
+                    self.stats['total_requests'] += 1
+                    self.stats[f'status_{status_code}'] += 1
+                    self.response_times.append(response_time)
+                    self.response_times_by_status[status_code].append(response_time)
+                    
+                    if status_code == 200:
+                        self.stats['successful_requests'] += 1
+                        return True, status_code, response_time, data, f"/{request_path}"
+                    else:
+                        self.stats['failed_requests'] += 1
+                        return False, status_code, response_time, None, f"/{request_path}"
+                
+        except asyncio.TimeoutError:
+            response_time = 30.0
+            async with self._stats_lock:
+                self.stats['total_requests'] += 1
+                self.stats['timeouts'] += 1
+                self.stats['failed_requests'] += 1
+                self.response_times.append(response_time)
+                self.response_times_by_status[0].append(response_time)
+            return False, 0, response_time, None, f"/{request_path}"
+            
+        except Exception as e:
+            response_time = 0.0
+            async with self._stats_lock:
+                self.stats['total_requests'] += 1
+                self.stats['errors'] += 1
+                self.stats['failed_requests'] += 1
+                self.response_times.append(response_time)
+                self.response_times_by_status[-1].append(response_time)
+            return False, -1, response_time, None, f"/{request_path}"
     
     def print_stats(self):
         """Print current statistics."""
@@ -308,7 +380,8 @@ def generate_poisson_intervals(rate, duration, fluctuation=0.5):
             yield interval
 
 
-async def run_load_test(client, avg_rps, duration, icao_codes, verbose=False, fluctuation=0.5):
+async def run_load_test(client, avg_rps, duration, icao_codes=None, verbose=False, fluctuation=0.5, 
+                        max_connections=10, force_close=False, time_mode='single', trivial=False):
     """
     Run a load test with variable request rates using async requests.
     
@@ -316,22 +389,37 @@ async def run_load_test(client, avg_rps, duration, icao_codes, verbose=False, fl
         client: EDRClient instance
         avg_rps: Average requests per second
         duration: Duration of the test in seconds
-        icao_codes: List of ICAO codes to use
+        icao_codes: List of ICAO codes to use (not required for trivial mode)
         verbose: Print details for each request
         fluctuation: How much the rate varies (0.0 = no variation, 1.0+ = high variation)
+        max_connections: Maximum concurrent connections to the server
+        force_close: Force close connections after each request (disables keep-alive)
+        time_mode: Temporal query mode ('single' or 'none')
+        trivial: Make trivial requests to base endpoint only
     """
     print(f"Starting EDR load test (ASYNC mode)...")
     print(f"Endpoint:        {client.base_url}")
-    print(f"Collection:      {client.collection}")
+    if not trivial:
+        print(f"Collection:      {client.collection}")
     print(f"Average RPS:     {avg_rps}")
     print(f"Fluctuation:     {fluctuation:.2f} ({'low' if fluctuation < 0.3 else 'medium' if fluctuation < 0.7 else 'high'})")
     print(f"Duration:        {duration}s")
-    print(f"ICAO codes:      {len(icao_codes)} airports")
+    if trivial:
+        print(f"Mode:            Trivial (base endpoint only)")
+    else:
+        print(f"ICAO codes:      {len(icao_codes)} airports")
+    print(f"Max connections: {max_connections}")
+    print(f"Keep-alive:      {'disabled' if force_close else 'enabled'}")
     print(f"Expected total:  ~{int(avg_rps * duration)} requests")
     print("-" * 60)
     
-    # Create aiohttp session
-    async with aiohttp.ClientSession() as session:
+    # Create aiohttp session with connection control
+    connector = aiohttp.TCPConnector(
+        limit=max_connections,           # Limit total connections
+        limit_per_host=max_connections,  # Limit connections per host
+        force_close=force_close          # Force close connections if requested
+    )
+    async with aiohttp.ClientSession(connector=connector) as session:
         client.session = session
         
         start_time = time.time()
@@ -346,11 +434,13 @@ async def run_load_test(client, avg_rps, duration, icao_codes, verbose=False, fl
                     # Sleep until next request
                     await asyncio.sleep(interval)
                     
-                    # Pick a random ICAO code
-                    icao_code = random.choice(icao_codes)
-                    
                     # Schedule the request (don't wait for it)
-                    task = asyncio.create_task(make_request(icao_code))
+                    if trivial:
+                        task = asyncio.create_task(make_trivial_request())
+                    else:
+                        # Pick a random ICAO code
+                        icao_code = random.choice(icao_codes)
+                        task = asyncio.create_task(make_request(icao_code))
                     tasks.append(task)
                     
             except asyncio.CancelledError:
@@ -362,12 +452,21 @@ async def run_load_test(client, avg_rps, duration, icao_codes, verbose=False, fl
         
         # Task to make individual requests
         async def make_request(icao_code):
-            success, status_code, response_time, data, request_path = await client.get_metar(icao_code)
+            success, status_code, response_time, data, request_path = await client.get_metar(icao_code, time_mode=time_mode)
             
             if verbose:
                 status = "OK" if success else "FAIL"
                 status_desc = get_http_status_description(status_code)
                 print(f"[{status:4s}] {icao_code} [{status_code} {status_desc}] {response_time:.3f}s - {request_path}")
+        
+        # Task to make trivial requests
+        async def make_trivial_request():
+            success, status_code, response_time, data, request_path = await client.get_trivial()
+            
+            if verbose:
+                status = "OK" if success else "FAIL"
+                status_desc = get_http_status_description(status_code)
+                print(f"[{status:4s}] TRIVIAL [{status_code} {status_desc}] {response_time:.3f}s - {request_path}")
         
         # Task to print periodic status updates
         async def status_reporter():
@@ -442,6 +541,11 @@ async def run_load_test(client, avg_rps, duration, icao_codes, verbose=False, fl
 
 def main():
     """Main entry point for the EDR client."""
+    # Fix for Windows: Use SelectorEventLoop instead of ProactorEventLoop
+    # This prevents "ConnectionResetError: [WinError 10054]" when using force_close
+    if platform.system() == 'Windows':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
     parser = argparse.ArgumentParser(
         description='EDR Client Load Testing Tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -458,6 +562,12 @@ Examples:
   
   # Use a custom endpoint with verbose output
   python edr_client_example.py --rps 10 --endpoint https://my-edr-server.com/edr --verbose
+  
+  # Limit concurrent connections to avoid NGINX rate limiting
+  python edr_client_example.py --rps 8 --max-connections 5
+  
+  # Force close connections after each request (no keep-alive)
+  python edr_client_example.py --rps 8 --force-close
         '''
     )
     
@@ -528,6 +638,33 @@ Examples:
         help='Password for HTTP Basic Authentication'
     )
     
+    parser.add_argument(
+        '--max-connections',
+        type=int,
+        default=10,
+        help='Maximum concurrent HTTP connections (default: 10). Lower this if getting rate-limited.'
+    )
+    
+    parser.add_argument(
+        '--force-close',
+        action='store_true',
+        help='Force close connections after each request (disables keep-alive). Use if NGINX counts connections.'
+    )
+    
+    parser.add_argument(
+        '--time-mode',
+        type=str,
+        choices=['single', 'none'],
+        default='single',
+        help='Temporal query mode: "single" includes datetime parameter, "none" omits it (default: single)'
+    )
+    
+    parser.add_argument(
+        '--trivial',
+        action='store_true',
+        help='Make trivial requests to base endpoint only (no collections/locations). Useful for baseline performance testing.'
+    )
+    
     args = parser.parse_args()
     
     # Validate arguments
@@ -550,12 +687,22 @@ Examples:
     # Single request mode
     if args.single:
         async def single_request():
-            async with aiohttp.ClientSession() as session:
+            connector = aiohttp.TCPConnector(limit=1)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 client.session = session
                 print(f"Making single request for {args.single}...")
-                datetime_str = client.get_random_datetime()
-                print(f"Datetime: {datetime_str}")
-                success, status_code, response_time, data, request_path = await client.get_metar(args.single, datetime_str)
+                print(f"Time mode: {args.time_mode}")
+                
+                if args.time_mode == 'single':
+                    datetime_str = client.get_random_datetime()
+                    print(f"Datetime: {datetime_str}")
+                    success, status_code, response_time, data, request_path = await client.get_metar(
+                        args.single, datetime_str, time_mode=args.time_mode
+                    )
+                else:
+                    success, status_code, response_time, data, request_path = await client.get_metar(
+                        args.single, time_mode=args.time_mode
+                    )
                 
                 status_desc = get_http_status_description(status_code)
                 print(f"\nStatus Code: {status_code} ({status_desc})")
@@ -574,8 +721,26 @@ Examples:
     # Load test mode
     async def run_test_with_locations():
         """Fetch locations and run the load test."""
-        async with aiohttp.ClientSession() as session:
+        # Use a simple session for fetching locations
+        connector = aiohttp.TCPConnector(limit=5)
+        async with aiohttp.ClientSession(connector=connector) as session:
             client.session = session
+            
+            # Skip location fetching in trivial mode
+            if args.trivial:
+                await run_load_test(
+                    client=client,
+                    avg_rps=args.rps,
+                    duration=args.duration,
+                    icao_codes=None,
+                    verbose=args.verbose,
+                    fluctuation=args.fluctuation,
+                    max_connections=args.max_connections,
+                    force_close=args.force_close,
+                    time_mode=args.time_mode,
+                    trivial=True
+                )
+                return 0
             
             # Determine which ICAO codes to use
             icao_codes = None
@@ -610,7 +775,11 @@ Examples:
                 duration=args.duration,
                 icao_codes=icao_codes,
                 verbose=args.verbose,
-                fluctuation=args.fluctuation
+                fluctuation=args.fluctuation,
+                max_connections=args.max_connections,
+                force_close=args.force_close,
+                time_mode=args.time_mode,
+                trivial=False
             )
             return 0
     
