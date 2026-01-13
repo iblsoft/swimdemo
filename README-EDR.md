@@ -128,6 +128,23 @@ Make trivial requests to the base endpoint only (no collections/locations):
 python edr_load_test.py --rps 10 --trivial
 ```
 
+#### Query Multiple Locations per Request
+
+Request data for multiple locations in a single request (randomly selected without repetition):
+
+```bash
+python edr_load_test.py --rps 5 --num-locations 3 --verbose
+```
+
+#### Request Specific Format
+
+Request data in a specific format (e.g., GeoJSON or OriginalInZip):
+
+```bash
+python edr_load_test.py --rps 5 --format GeoJSON --verbose
+python edr_load_test.py --rps 5 --format OriginalInZip --verbose
+```
+
 ## Command Line Options
 
 | Option | Description |
@@ -138,6 +155,8 @@ python edr_load_test.py --rps 10 --trivial
 | `--endpoint` | EDR service endpoint URL (default: `https://swim.iblsoft.com:8444/edr`) |
 | `--collection` | Collection name (default: `metar-all`) |
 | `--icao` | Specific ICAO codes to test. If not provided, the tool will attempt to fetch available locations from the EDR service |
+| `--num-locations` | Number of locations (ICAO codes) to include in each request, comma-delimited (default: 1) |
+| `--format` | Response format to request (e.g., `GeoJSON`, `OriginalInZip`). If not specified, server default is used |
 | `--verbose` | Print details for each request |
 | `--single ICAO` | Make a single request for the specified ICAO code and exit |
 | `--username` | Username for HTTP Basic Authentication |

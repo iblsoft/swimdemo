@@ -147,19 +147,20 @@ class EDRClient:
             print(f"Warning: Error fetching locations: {e}", file=sys.stderr)
             return None
     
-    async def get_metar(self, icao_code, datetime_str=None, time_mode='single'):
+    async def get_metar(self, icao_code, datetime_str=None, time_mode='single', format=None):
         """
         Request METAR data for a specific aerodrome and time.
         
         Args:
-            icao_code: 4-letter ICAO airport code
+            icao_code: 4-letter ICAO airport code or comma-delimited list of codes
             datetime_str: Optional datetime string (YYYY-MM-DDTHH:MM). If None, generates random.
             time_mode: Temporal query mode - 'single' or 'none'
+            format: Optional response format (e.g., 'GeoJSON', 'OriginalInZip'). If None, server default is used.
             
         Returns:
             tuple: (success: bool, status_code: int, response_time: float, data: bytes or None, url: str)
         """
-        # Build the request URL
+        # Build the request URL (icao_code can be a single code or comma-delimited list)
         url = f"{self.base_url}/collections/{self.collection}/locations/{icao_code}"
         
         # Build params and path based on time mode
@@ -174,6 +175,12 @@ class EDRClient:
         else:
             # Future time modes can be added here
             raise ValueError(f"Unsupported time_mode: {time_mode}")
+        
+        # Add format parameter if specified
+        if format:
+            params['f'] = format
+            separator = '&' if '?' in request_path else '?'
+            request_path = f"{request_path}{separator}f={format}"
         
         # Prepare headers with authentication if available
         headers = {}
@@ -381,7 +388,8 @@ def generate_poisson_intervals(rate, duration, fluctuation=0.5):
 
 
 async def run_load_test(client, avg_rps, duration, icao_codes=None, verbose=False, fluctuation=0.5, 
-                        max_connections=10, force_close=False, time_mode='single', trivial=False, insecure=False):
+                        max_connections=10, force_close=False, time_mode='single', trivial=False, insecure=False,
+                        num_locations=1, format=None):
     """
     Run a load test with variable request rates using async requests.
     
@@ -397,6 +405,8 @@ async def run_load_test(client, avg_rps, duration, icao_codes=None, verbose=Fals
         time_mode: Temporal query mode ('single' or 'none')
         trivial: Make trivial requests to base endpoint only
         insecure: Skip SSL certificate verification
+        num_locations: Number of locations (ICAO codes) to include in each request
+        format: Response format (e.g., 'GeoJSON', 'OriginalInZip'). If None, server default is used.
     """
     print(f"Starting EDR load test (ASYNC mode)...")
     print(f"Endpoint:        {client.base_url}")
@@ -409,6 +419,9 @@ async def run_load_test(client, avg_rps, duration, icao_codes=None, verbose=Fals
         print(f"Mode:            Trivial (base endpoint only)")
     else:
         print(f"ICAO codes:      {len(icao_codes)} airports")
+        print(f"Locations/req:   {num_locations}")
+        if format:
+            print(f"Format:          {format}")
     print(f"Max connections: {max_connections}")
     print(f"Keep-alive:      {'disabled' if force_close else 'enabled'}")
     print(f"Expected total:  ~{int(avg_rps * duration)} requests")
@@ -440,8 +453,14 @@ async def run_load_test(client, avg_rps, duration, icao_codes=None, verbose=Fals
                     if trivial:
                         task = asyncio.create_task(make_trivial_request())
                     else:
-                        # Pick a random ICAO code
-                        icao_code = random.choice(icao_codes)
+                        # Pick random ICAO code(s) without repetition
+                        if num_locations == 1:
+                            icao_code = random.choice(icao_codes)
+                        else:
+                            # Randomly select num_locations codes without replacement
+                            num_to_select = min(num_locations, len(icao_codes))
+                            selected_codes = random.sample(icao_codes, num_to_select)
+                            icao_code = ','.join(selected_codes)
                         task = asyncio.create_task(make_request(icao_code))
                     tasks.append(task)
                     
@@ -454,7 +473,7 @@ async def run_load_test(client, avg_rps, duration, icao_codes=None, verbose=Fals
         
         # Task to make individual requests
         async def make_request(icao_code):
-            success, status_code, response_time, data, request_path = await client.get_metar(icao_code, time_mode=time_mode)
+            success, status_code, response_time, data, request_path = await client.get_metar(icao_code, time_mode=time_mode, format=format)
             
             if verbose:
                 status = "OK" if success else "FAIL"
@@ -584,6 +603,13 @@ Examples:
   # Baseline performance test (trivial requests to base endpoint only)
   python edr_load_test.py --rps 10 --trivial
   
+  # Test with multiple locations per request (3 random locations)
+  python edr_load_test.py --rps 5 --num-locations 3
+  
+  # Request specific format (GeoJSON or OriginalInZip)
+  python edr_load_test.py --rps 5 --format GeoJSON
+  python edr_load_test.py --rps 5 --format OriginalInZip
+  
   # Single request to specific location
   python edr_load_test.py --single LZIB --time-mode none
         '''
@@ -689,6 +715,19 @@ Examples:
         help='Skip SSL certificate verification (use for self-signed certificates). WARNING: Use only in testing!'
     )
     
+    parser.add_argument(
+        '--num-locations',
+        type=int,
+        default=1,
+        help='Number of locations (ICAO codes) to include in each request, comma-delimited (default: 1)'
+    )
+    
+    parser.add_argument(
+        '--format',
+        type=str,
+        help='Response format to request (e.g., GeoJSON, OriginalInZip). If not specified, server default is used.'
+    )
+    
     args = parser.parse_args()
     
     # Warn about insecure mode
@@ -710,6 +749,10 @@ Examples:
         print("Error: Fluctuation must be non-negative", file=sys.stderr)
         return 1
     
+    if args.num_locations <= 0:
+        print("Error: Number of locations must be greater than 0", file=sys.stderr)
+        return 1
+    
     # Create client
     client = EDRClient(base_url=args.endpoint, collection=args.collection, 
                        username=args.username, password=args.password)
@@ -725,16 +768,18 @@ Examples:
                 client.session = session
                 print(f"Making single request for {args.single}...")
                 print(f"Time mode: {args.time_mode}")
+                if args.format:
+                    print(f"Format: {args.format}")
                 
                 if args.time_mode == 'single':
                     datetime_str = client.get_random_datetime()
                     print(f"Datetime: {datetime_str}")
                     success, status_code, response_time, data, request_path = await client.get_metar(
-                        args.single, datetime_str, time_mode=args.time_mode
+                        args.single, datetime_str, time_mode=args.time_mode, format=args.format
                     )
                 else:
                     success, status_code, response_time, data, request_path = await client.get_metar(
-                        args.single, time_mode=args.time_mode
+                        args.single, time_mode=args.time_mode, format=args.format
                     )
                 
                 status_desc = get_http_status_description(status_code)
@@ -775,7 +820,9 @@ Examples:
                     force_close=args.force_close,
                     time_mode=args.time_mode,
                     trivial=True,
-                    insecure=args.insecure
+                    insecure=args.insecure,
+                    num_locations=args.num_locations,
+                    format=args.format
                 )
                 return 0
             
@@ -817,7 +864,9 @@ Examples:
                 force_close=args.force_close,
                 time_mode=args.time_mode,
                 trivial=False,
-                insecure=args.insecure
+                insecure=args.insecure,
+                num_locations=args.num_locations,
+                format=args.format
             )
             return 0
     
