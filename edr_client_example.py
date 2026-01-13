@@ -553,23 +553,39 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  # Test with 5 requests per second for 60 seconds
+  # Basic load test with default settings (5 RPS, 60 seconds)
   python edr_client_example.py --rps 5 --duration 60
   
-  # Test with 20 requests per second with high fluctuation (dramatic bursts)
+  # Query latest METAR data (1 request per second to "metar" collection)
+  # The "metar" collection represents latest METAR/SPECI data
+  python edr_client_example.py --endpoint https://swim.iblsoft.com:8444/edr \\
+    --username NAME --password "PASSWORD" --verbose --rps 1 \\
+    --time-mode none --collection metar
+  
+  # Query historical METAR data with random datetime (5 RPS to "metar-all")
+  python edr_client_example.py --endpoint https://swim.iblsoft.com:8444/edr \\
+    --username NAME --password "PASSWORD" --verbose --rps 5 \\
+    --collection metar-all
+  
+  # Test with high fluctuation (dramatic bursts)
   python edr_client_example.py --rps 20 --duration 120 --fluctuation 1.0
   
   # Test with minimal fluctuation (steady rate)
   python edr_client_example.py --rps 10 --duration 60 --fluctuation 0.1
   
-  # Use a custom endpoint with verbose output
-  python edr_client_example.py --rps 10 --endpoint https://my-edr-server.com/edr --verbose
-  
   # Limit concurrent connections to avoid NGINX rate limiting
   python edr_client_example.py --rps 8 --max-connections 5
   
-  # Force close connections after each request (no keep-alive)
-  python edr_client_example.py --rps 8 --force-close
+  # Test with self-signed SSL certificate (local development) which is not
+  # signed by a trusted CA.
+  python edr_client_example.py --endpoint https://localhost:38444/edr \\
+    --username test --password test1234 --rps 5 --insecure
+  
+  # Baseline performance test (trivial requests to base endpoint only)
+  python edr_client_example.py --rps 10 --trivial
+  
+  # Single request to specific location
+  python edr_client_example.py --single LZIB --time-mode none
         '''
     )
     
