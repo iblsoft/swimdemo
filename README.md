@@ -2,9 +2,14 @@
 
 # IBL SWIM Demonstration - Client examples
 
-This is a repository of example scripts for interaction with AMQP on `swim.iblsoft.com`, or on any other MET-SWIM AMQP server that follows the [EUROCONTROL MET3SG AMQP Message Guidance](https://swim-eurocontrol.atlassian.net/wiki/spaces/MSS/pages/638156804/AMQP+Message+Structure+in+MET-SWIM), for example, `swim.dwd.de`. 
+This repository contains two tools for interacting with SWIM (System Wide Information Management) services:
+
+1. **AMQP 1.0 Client** - For subscribing to real-time weather data via AMQP messaging (documented below)
+2. **EDR Load Testing Tool** - For performance testing of SWIM EDR (Environmental Data Retrieval) services (see [README-EDR.md](README-EDR.md))
 
 ## AMQP 1.0 client
+
+This is a repository of example scripts for interaction with AMQP on `swim.iblsoft.com`, or on any other MET-SWIM AMQP server that follows the [EUROCONTROL MET3SG AMQP Message Guidance](https://swim-eurocontrol.atlassian.net/wiki/spaces/MSS/pages/638156804/AMQP+Message+Structure+in+MET-SWIM), for example, `swim.dwd.de`.
 
 [amqp_client_example.py](https://github.com/iblsoft/swimdemo/blob/main/amqp_client_example.py) is an AMQP 1.0 client based on [Apache Qpid Proton](https://github.com/apache/qpid-proton) (AMQP messaging client).
 
