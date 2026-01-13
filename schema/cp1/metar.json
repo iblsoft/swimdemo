@@ -1,0 +1,110 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/iblsoft/swimdemo/schema/metar.json",
+    "title": "MET-SWIM AMQP CP1 Message - METAR/SPECI",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "address": {
+            "type": "string",
+            "enum": ["weather.aviation.metar"]
+        },
+        "priority": { "type": "integer", "minimum": 4, "maximum": 6 },
+        "subject": { "type": "string", "const": "weather.aviation.metar" },
+        "content-type": { "type": "string", "const": "application/xml" },
+        "content-encoding": { "type": "string", "enum": ["gzip", "identity"] },
+        "absolute-expiry-time": { "type": "integer", "minimum": 0 },
+        "creation-time": { "type": "integer", "minimum": 0 },
+        "conformsTo": { "type": "string", "format": "uri" },
+
+        "properties.issue_datetime": {
+            "$ref": "#/$defs/rfc3339",
+            "x-iwxxm": {
+                "source": "iwxxm",
+                "xpath": "//iwxxm:issueTime/gml:TimeInstant/gml:timePosition",
+                "notes": "Issue/publication time from root METAR/SPECI element"
+            }
+        },
+        "properties.datetime": {
+            "$ref": "#/$defs/rfc3339",
+            "x-iwxxm": {
+                "source": "iwxxm",
+                "xpath": "//iwxxm:observationTime/gml:TimeInstant/gml:timePosition",
+                "notes": "Observation time for METAR/SPECI"
+            }
+        },
+        "properties.start_datetime": { "$ref": "#/$defs/rfc3339" },
+        "properties.end_datetime": { "$ref": "#/$defs/rfc3339" },
+
+        "properties.icao_location_identifier": {
+            "type": "string",
+            "pattern": "^[A-Z0-9]{4}$",
+            "x-iwxxm": {
+                "source": "iwxxm",
+                "xpath": "//iwxxm:aerodrome/aixm:AirportHeliport//aixm:locationIndicatorICAO",
+                "notes": "Aerodrome ICAO code; use descendant axis to allow intermediate elements"
+            }
+        },
+        "properties.icao_location_type": {
+            "type": "string",
+            "const": "AD"
+        },
+        "properties.report_status": {
+            "type": "string",
+            "enum": ["NORMAL", "AMENDMENT", "CORRECTION"],
+            "x-iwxxm": {
+                "source": "iwxxm",
+                "xpath": "//@reportStatus",
+                "notes": "IWXXM attribute reportStatus on root element"
+            }
+        },
+        "geometry.type": {
+            "type": "string",
+            "enum": ["Point"],
+            "x-iwxxm": {
+                "xpath": "//aixm:ARP/aixm:ElevatedPoint/gml:pos",
+                "notes": "Split gml:pos 'lat lon' into two doubles"
+            }
+        },
+        "geometry.coordinates.latitude": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+        },
+        "geometry.coordinates.longitude": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+        }
+    },
+    "required": [
+        "subject",
+        "content-type",
+        "properties.issue_datetime",
+        "properties.datetime",
+        "properties.icao_location_identifier",
+        "properties.icao_location_type",
+        "properties.report_status"
+    ],
+    "optional": [
+        "geometry.type",
+        "geometry.coordinates.latitude",
+        "geometry.coordinates.longitude"
+    ],
+    "allOf": [
+        {
+            "if": { "required": ["address"] },
+            "then": {
+                "properties": { "subject": { "const": { "$data": "1/address" } } }
+            }
+        }
+    ],
+    "$defs": {
+        "rfc3339": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "Z$",
+            "description": "RFC3339 UTC (must end with 'Z')."
+        }
+    }
+}
