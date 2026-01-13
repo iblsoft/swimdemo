@@ -11,9 +11,9 @@ Requirements:
     pip install aiohttp numpy
 
 Usage:
-    python edr_client_example.py --rps 5
-    python edr_client_example.py --rps 10 --duration 60
-    python edr_client_example.py --rps 20 --endpoint https://swim.iblsoft.com:8444/edr --collection metar-all
+    python edr_load_test.py --rps 5
+    python edr_load_test.py --rps 10 --duration 60
+    python edr_load_test.py --rps 20 --endpoint https://swim.iblsoft.com:8444/edr --collection metar-all
 """
 
 import argparse
@@ -554,38 +554,38 @@ def main():
         epilog='''
 Examples:
   # Basic load test with default settings (5 RPS, 60 seconds)
-  python edr_client_example.py --rps 5 --duration 60
+  python edr_load_test.py --rps 5 --duration 60
   
   # Query latest METAR data (1 request per second to "metar" collection)
   # The "metar" collection represents latest METAR/SPECI data
-  python edr_client_example.py --endpoint https://swim.iblsoft.com:8444/edr \\
+  python edr_load_test.py --endpoint https://swim.iblsoft.com:8444/edr \\
     --username NAME --password "PASSWORD" --verbose --rps 1 \\
     --time-mode none --collection metar
   
   # Query historical METAR data with random datetime (5 RPS to "metar-all")
-  python edr_client_example.py --endpoint https://swim.iblsoft.com:8444/edr \\
+  python edr_load_test.py --endpoint https://swim.iblsoft.com:8444/edr \\
     --username NAME --password "PASSWORD" --verbose --rps 5 \\
     --collection metar-all
   
   # Test with high fluctuation (dramatic bursts)
-  python edr_client_example.py --rps 20 --duration 120 --fluctuation 1.0
+  python edr_load_test.py --rps 20 --duration 120 --fluctuation 1.0
   
   # Test with minimal fluctuation (steady rate)
-  python edr_client_example.py --rps 10 --duration 60 --fluctuation 0.1
+  python edr_load_test.py --rps 10 --duration 60 --fluctuation 0.1
   
   # Limit concurrent connections to avoid NGINX rate limiting
-  python edr_client_example.py --rps 8 --max-connections 5
+  python edr_load_test.py --rps 8 --max-connections 5
   
   # Test with self-signed SSL certificate (local development) which is not
   # signed by a trusted CA.
-  python edr_client_example.py --endpoint https://localhost:38444/edr \\
+  python edr_load_test.py --endpoint https://localhost:38444/edr \\
     --username test --password test1234 --rps 5 --insecure
   
   # Baseline performance test (trivial requests to base endpoint only)
-  python edr_client_example.py --rps 10 --trivial
+  python edr_load_test.py --rps 10 --trivial
   
   # Single request to specific location
-  python edr_client_example.py --single LZIB --time-mode none
+  python edr_load_test.py --single LZIB --time-mode none
         '''
     )
     
