@@ -92,6 +92,7 @@ You can override the default AMQP URL, topic, CA certificate, output folder, aut
 | `--insecure` | Optional. Completely disable SSL certificate verification (both certificate chain and hostname). Client certificates will still be sent if provided. Use only for testing with self-signed certificates. |
 | `--skip-hostname-verification` | Optional. Skip SSL hostname/domain verification but still verify the server's certificate chain. Use this when connecting via IP address or when the domain name doesn't match the certificate. The server certificate must still be signed by a trusted CA. Client certificates will still be sent and verified by the server. |
 | `-d, --delivery-mode` | AMQP delivery guarantee mode (default: `at-least-once`). Choose from: `at-least-once`, `at-most-once`, or `exactly-once`. See the Delivery Guarantees section below for details. |
+| `-f, --filter` | SQL-like message filter expression (evaluated server-side). Filters messages based on AMQP application properties. See the Message Filtering section below for examples. |
 | `--trace-frm` | Enable AMQP protocol frame tracing. Shows detailed AMQP frames being sent and received. Useful for debugging protocol-level issues. Equivalent to `PN_TRACE_FRM=1`. |
 | `--trace-raw` | Enable raw binary data tracing. Shows the raw bytes being sent and received over the wire. Very verbose. Equivalent to `PN_TRACE_RAW=1`. |
 
@@ -154,6 +155,59 @@ Create multiple parallel connections for load testing purposes:
 
 ```bash
 python amqp_client_example.py --num-connections 10
+```
+
+#### Message Filtering
+
+The client supports server-side message filtering using SQL-like filter expressions. Filters are evaluated on the broker/server side before messages are sent to the client. Filters operate on AMQP application properties.
+
+##### Filter Syntax
+
+The filter syntax follows the JMS selector specification and supports:
+
+- **Equality**: `property = 'value'` (string values use single quotes)
+- **Comparison**: `property > 5`, `property <= 10` (numbers without quotes)
+- **Pattern matching**: `property LIKE 'ED%'` (use `%` as wildcard)
+- **Logical operators**: `AND`, `OR`, `NOT`
+- **IN operator**: `property IN ('value1', 'value2')`
+
+**Important Quoting Rules**:
+1. **String values** in filters must use **single quotes** (`'value'`), not double quotes
+2. **Property names with dots** (like `properties.icao_location_type`) must be wrapped in **double quotes** (`"property.name"`) because the dot character is a reserved operator in SQL selector syntax
+3. When specifying filters on the command line, escape the double quotes around property names with backslashes: `\"property.name\"`
+
+**Why the complex quoting?** AMQP application properties use dotted names like `properties.icao_location_type`. In SQL selector syntax, dots normally indicate object navigation (e.g., `object.field`), so property names containing literal dots must be quoted to tell the parser they are single identifiers.
+
+##### Example: Filter by ICAO Location Identifier
+
+To receive only messages for airports starting with "ED" (Germany):
+
+```bash
+python amqp_client_example.py \
+  --topic "weather.aviation.*" \
+  --filter "\"properties.icao_location_identifier\" LIKE 'ED%'"
+```
+
+This will match airports like EDDF (Frankfurt), EDDM (Munich), EDDB (Berlin), etc.
+
+##### Example: Filter by Location Type
+
+To receive only aerodrome-related reports (type "AD"):
+
+```bash
+python amqp_client_example.py \
+  --topic "weather.aviation.*" \
+  --filter "\"properties.icao_location_type\"='AD'"
+```
+
+##### Example: Combining Multiple Conditions
+
+To receive correction reports from Austrian airports:
+
+```bash
+python amqp_client_example.py \
+  --topic "weather.aviation.*" \
+  --filter "\"properties.icao_location_identifier\" LIKE 'LO%' AND \"properties.report_status\"='COR'"
 ```
 
 #### Delivery Guarantees
@@ -229,14 +283,6 @@ Shows the actual bytes being sent and received (very verbose):
 
 ```bash
 python amqp_client_example.py --trace-raw
-```
-
-##### Combining trace options
-
-You can enable both tracing modes simultaneously:
-
-```bash
-python amqp_client_example.py --trace-frm --trace-raw
 ```
 
 **Note**: These options are equivalent to setting the environment variables `PN_TRACE_FRM=1` and `PN_TRACE_RAW=1` respectively, but are more convenient to use.

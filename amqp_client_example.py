@@ -38,11 +38,11 @@ import ssl  # Import to check the SSL backend
 from datetime import datetime, timezone
 from proton import ConnectionException, SSLDomain, SASL, Delivery
 from proton.handlers import MessagingHandler
-from proton.reactor import Container, DurableSubscription, AtLeastOnce, AtMostOnce
+from proton.reactor import Container, DurableSubscription, AtLeastOnce, AtMostOnce, Selector
 from iwxxm_utils import extractReportInformation
 
 class AMQPClient(MessagingHandler):
-    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None, username=None, password=None, durable=False, subscription_name=None, insecure=False, skip_hostname_verification=False, delivery_mode='at-least-once'):
+    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None, username=None, password=None, durable=False, subscription_name=None, insecure=False, skip_hostname_verification=False, delivery_mode='at-least-once', message_filter=None):
         super(AMQPClient, self).__init__()
         self.url = url
         self.topic = topic
@@ -60,6 +60,7 @@ class AMQPClient(MessagingHandler):
         self.insecure = insecure
         self.skip_hostname_verification = skip_hostname_verification
         self.delivery_mode = delivery_mode
+        self.message_filter = message_filter
         self.using_schannel = self.is_using_schannel()
         self.connections = {}  # Map connection to connection number
         self.receivers = []  # List of all receivers
@@ -81,6 +82,10 @@ class AMQPClient(MessagingHandler):
             print("Durable subscription mode: ENABLED. Messages will be queued while disconnected.")
         else:
             print("Durable subscription mode: DISABLED. Messages sent while disconnected will be lost.")
+        
+        if self.message_filter:
+            print(f"Message filter (server-side): {self.message_filter}")
+            print("  → Only messages matching this filter will be delivered to the client.")
         
         if self.insecure:
             print("WARNING: SSL certificate verification is COMPLETELY DISABLED (server cert chain and hostname).")
@@ -238,6 +243,10 @@ class AMQPClient(MessagingHandler):
                 elif self.delivery_mode == 'at-least-once':
                     receiver_options.append(AtLeastOnce())
                 # For 'exactly-once', we don't add an option here - we handle it in on_message with explicit settlement
+                
+                # Add message filter if specified
+                if self.message_filter:
+                    receiver_options.append(Selector(self.message_filter))
                 
                 # Create receiver with durability and delivery mode options
                 if self.durable:
@@ -545,6 +554,10 @@ class AMQPClient(MessagingHandler):
                 elif self.delivery_mode == 'at-least-once':
                     receiver_options.append(AtLeastOnce())
                 
+                # Add message filter if specified
+                if self.message_filter:
+                    receiver_options.append(Selector(self.message_filter))
+                
                 # Create receiver with the same durability and delivery mode options
                 if self.durable:
                     if self.subscription_name:
@@ -753,6 +766,18 @@ if __name__ == '__main__':
              "'exactly-once': Explicit acknowledgment with manual settlement, requires broker support."
     )
     parser.add_argument(
+        '--filter', '-f',
+        help="SQL-like message filter expression (evaluated server-side). "
+             "Filters messages based on AMQP application properties. "
+             "IMPORTANT: Property names with dots must be double-quoted (escaped with backslash), "
+             "string values must use single quotes. "
+             "Examples: "
+             "\"\\\"properties.icao_location_identifier\\\" LIKE 'ED%%'\", "
+             "\"\\\"properties.icao_location_type\\\"='AD'\", "
+             "\"\\\"properties.report_status\\\"='COR' AND priority > 5\". "
+             "Note: Property names are double-quoted (\\\"name\\\"), values are single-quoted ('value')."
+    )
+    parser.add_argument(
         '--trace-frm',
         action='store_true',
         help="Enable AMQP protocol frame tracing. Shows detailed AMQP frames being sent and received. "
@@ -783,6 +808,7 @@ if __name__ == '__main__':
     skip_hostname_verification = args.skip_hostname_verification
     primer_connection_enabled = args.primer_connection
     delivery_mode = args.delivery_mode
+    message_filter = args.filter
     
     # Calculate trace level for display purposes
     # Note: Environment variables were already set before importing Proton
@@ -827,7 +853,8 @@ if __name__ == '__main__':
             subscription_name=subscription_name,
             insecure=insecure,
             skip_hostname_verification=skip_hostname_verification,
-            delivery_mode=delivery_mode
+            delivery_mode=delivery_mode,
+            message_filter=message_filter
         )
         Container(client, container_id=container_id, trace=trace_level).run()
     except Exception as e:
