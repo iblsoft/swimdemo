@@ -25,6 +25,14 @@ import socket
 import argparse
 import tempfile
 
+# Parse trace arguments early to set environment variables before importing Proton
+# This is necessary because Proton checks these env vars at import time
+if __name__ == '__main__':
+    if '--trace-frm' in sys.argv:
+        os.environ['PN_TRACE_FRM'] = '1'
+    if '--trace-raw' in sys.argv:
+        os.environ['PN_TRACE_RAW'] = '1'
+
 # Import proton and other SSL-related modules
 import ssl  # Import to check the SSL backend
 from datetime import datetime, timezone
@@ -776,20 +784,21 @@ if __name__ == '__main__':
     primer_connection_enabled = args.primer_connection
     delivery_mode = args.delivery_mode
     
-    # Calculate trace level based on command-line flags
+    # Calculate trace level for display purposes
+    # Note: Environment variables were already set before importing Proton
     # TRACE_OFF = 0, TRACE_RAW = 1, TRACE_FRM = 2, TRACE_DRV = 4
     trace_level = 0
+    trace_flags = []
+    
     if args.trace_raw:
         trace_level |= 1  # TRACE_RAW
+        trace_flags.append("RAW")
+    
     if args.trace_frm:
         trace_level |= 2  # TRACE_FRM
+        trace_flags.append("FRAMES")
     
-    if trace_level > 0:
-        trace_flags = []
-        if trace_level & 1:
-            trace_flags.append("RAW")
-        if trace_level & 2:
-            trace_flags.append("FRAMES")
+    if trace_flags:
         print(f"Protocol tracing enabled: {', '.join(trace_flags)}")
         print()
     hostname = socket.gethostname()  # Get the hostname of the computer
