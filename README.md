@@ -91,6 +91,9 @@ You can override the default AMQP URL, topic, CA certificate, output folder, aut
 | `--subscription-name` | Optional. Custom name for the durable subscription. If not provided, an auto-generated name based on the client ID will be used. This is only relevant when `--durable` is enabled |
 | `--insecure` | Optional. Completely disable SSL certificate verification (both certificate chain and hostname). Client certificates will still be sent if provided. Use only for testing with self-signed certificates. |
 | `--skip-hostname-verification` | Optional. Skip SSL hostname/domain verification but still verify the server's certificate chain. Use this when connecting via IP address or when the domain name doesn't match the certificate. The server certificate must still be signed by a trusted CA. Client certificates will still be sent and verified by the server. |
+| `-d, --delivery-mode` | AMQP delivery guarantee mode (default: `at-least-once`). Choose from: `at-least-once`, `at-most-once`, or `exactly-once`. See the Delivery Guarantees section below for details. |
+| `--trace-frm` | Enable AMQP protocol frame tracing. Shows detailed AMQP frames being sent and received. Useful for debugging protocol-level issues. Equivalent to `PN_TRACE_FRM=1`. |
+| `--trace-raw` | Enable raw binary data tracing. Shows the raw bytes being sent and received over the wire. Very verbose. Equivalent to `PN_TRACE_RAW=1`. |
 
 #### Authentication with Username and Password
 
@@ -152,6 +155,91 @@ Create multiple parallel connections for load testing purposes:
 ```bash
 python amqp_client_example.py --num-connections 10
 ```
+
+#### Delivery Guarantees
+
+The client supports three AMQP delivery guarantee modes that control message reliability:
+
+##### At-Least-Once (default)
+
+Messages are acknowledged after processing. The broker waits for acknowledgment before considering the message delivered. If the client crashes before acknowledging, the message will be redelivered.
+
+- **Guarantees**: No message loss
+- **Trade-off**: Possible duplicates on failure
+- **Use case**: When reliability is important and your application can handle duplicate messages
+
+```bash
+python amqp_client_example.py --delivery-mode at-least-once
+```
+
+##### At-Most-Once
+
+Messages are pre-settled (fire-and-forget). The broker does not wait for acknowledgment. Fast but messages may be lost if the client crashes.
+
+- **Guarantees**: No duplicates
+- **Trade-off**: Messages may be lost
+- **Use case**: When performance is critical and occasional message loss is acceptable
+
+```bash
+python amqp_client_example.py --delivery-mode at-most-once
+```
+
+##### Exactly-Once
+
+Messages are explicitly acknowledged with manual disposition control. Provides the strongest guarantees but requires broker support.
+
+- **Guarantees**: No message loss, no duplicates (if broker supports it)
+- **Trade-off**: More complex, requires broker support
+- **Use case**: When both reliability and no duplicates are critical
+
+```bash
+python amqp_client_example.py --delivery-mode exactly-once
+```
+
+**Note**: When you connect, the client will display the negotiated delivery mode and verify whether the broker accepted your requested guarantee:
+
+```
+[Connection 1] ═══ Delivery Guarantee Negotiation ═══
+  Requested: AT-LEAST-ONCE
+  Broker response: Broker will send UNSETTLED deliveries (requires acknowledgment)
+  ✓ SUCCESS: Your requested 'at-least-once' delivery guarantee is SUPPORTED
+═══════════════════════════════════════════════════
+```
+
+#### Protocol Tracing and Debugging
+
+For troubleshooting connection or protocol issues, you can enable detailed tracing:
+
+##### Frame-level tracing
+
+Shows AMQP protocol frames (OPEN, BEGIN, ATTACH, FLOW, TRANSFER, etc.) being exchanged with the broker:
+
+```bash
+python amqp_client_example.py --trace-frm
+```
+
+This is useful for:
+- Understanding the AMQP handshake sequence
+- Debugging delivery acknowledgments
+- Verifying link and session negotiation
+
+##### Raw binary tracing
+
+Shows the actual bytes being sent and received (very verbose):
+
+```bash
+python amqp_client_example.py --trace-raw
+```
+
+##### Combining trace options
+
+You can enable both tracing modes simultaneously:
+
+```bash
+python amqp_client_example.py --trace-frm --trace-raw
+```
+
+**Note**: These options are equivalent to setting the environment variables `PN_TRACE_FRM=1` and `PN_TRACE_RAW=1` respectively, but are more convenient to use.
 
 ### Example output
 

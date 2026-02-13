@@ -28,13 +28,13 @@ import tempfile
 # Import proton and other SSL-related modules
 import ssl  # Import to check the SSL backend
 from datetime import datetime, timezone
-from proton import ConnectionException, SSLDomain, SASL
+from proton import ConnectionException, SSLDomain, SASL, Delivery
 from proton.handlers import MessagingHandler
-from proton.reactor import Container, DurableSubscription, AtLeastOnce
+from proton.reactor import Container, DurableSubscription, AtLeastOnce, AtMostOnce
 from iwxxm_utils import extractReportInformation
 
 class AMQPClient(MessagingHandler):
-    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None, username=None, password=None, durable=False, subscription_name=None, insecure=False, skip_hostname_verification=False):
+    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None, username=None, password=None, durable=False, subscription_name=None, insecure=False, skip_hostname_verification=False, delivery_mode='at-least-once'):
         super(AMQPClient, self).__init__()
         self.url = url
         self.topic = topic
@@ -51,6 +51,7 @@ class AMQPClient(MessagingHandler):
         self.subscription_name = subscription_name
         self.insecure = insecure
         self.skip_hostname_verification = skip_hostname_verification
+        self.delivery_mode = delivery_mode
         self.using_schannel = self.is_using_schannel()
         self.connections = {}  # Map connection to connection number
         self.receivers = []  # List of all receivers
@@ -59,6 +60,14 @@ class AMQPClient(MessagingHandler):
             print("Qpid Proton SSL backend: SChannel (Windows). Certificates must be imported into the Windows Certificate Store!")
         else:
             print("Qpid Proton SSL backend: OpenSSL.")
+        
+        # Display delivery mode information
+        delivery_mode_descriptions = {
+            'at-least-once': 'AT-LEAST-ONCE (messages acknowledged after processing, may have duplicates on failure)',
+            'at-most-once': 'AT-MOST-ONCE (pre-settled, no acknowledgment, messages may be lost)',
+            'exactly-once': 'EXACTLY-ONCE (explicit acknowledgment with manual settlement)'
+        }
+        print(f"Delivery guarantee mode: {delivery_mode_descriptions.get(self.delivery_mode, self.delivery_mode)}")
         
         if self.durable:
             print("Durable subscription mode: ENABLED. Messages will be queued while disconnected.")
@@ -210,7 +219,19 @@ class AMQPClient(MessagingHandler):
                 
                 self.connections[connection] = i + 1  # Store connection number (1-indexed)
                 
-                # Create receiver with durability options if requested
+                # Prepare delivery mode options
+                receiver_options = []
+                if self.durable:
+                    receiver_options.append(DurableSubscription())
+                
+                # Add delivery guarantee option
+                if self.delivery_mode == 'at-most-once':
+                    receiver_options.append(AtMostOnce())
+                elif self.delivery_mode == 'at-least-once':
+                    receiver_options.append(AtLeastOnce())
+                # For 'exactly-once', we don't add an option here - we handle it in on_message with explicit settlement
+                
+                # Create receiver with durability and delivery mode options
                 if self.durable:
                     # Create a unique subscription name for each connection
                     if self.subscription_name:
@@ -224,11 +245,14 @@ class AMQPClient(MessagingHandler):
                         connection, 
                         source=self.topic,
                         name=sub_name,
-                        options=DurableSubscription()
+                        options=receiver_options
                     )
                     print(f"  Connection {i + 1}/{self.num_connections}: Durable receiver '{connection_name}' (subscription: '{sub_name}') created on {self.url}")
                 else:
-                    receiver = event.container.create_receiver(connection, source=self.topic)
+                    if receiver_options:
+                        receiver = event.container.create_receiver(connection, source=self.topic, options=receiver_options)
+                    else:
+                        receiver = event.container.create_receiver(connection, source=self.topic)
                     print(f"  Connection {i + 1}/{self.num_connections}: Receiver '{connection_name}' created on {self.url}")
                 
                 self.receivers.append(receiver)
@@ -385,9 +409,65 @@ class AMQPClient(MessagingHandler):
                         print(f"Non-XML content type ({msg.content_type}) - skipping IWXXM extraction")
             except Exception as e:
                 print("Error decoding payload:", e)
+                # On error, reject the message if using exactly-once mode
+                if self.delivery_mode == 'exactly-once':
+                    event.delivery.update(Delivery.REJECTED)
+                    print("Message rejected due to processing error (exactly-once mode)")
+                return
         else:
             print("No payload found in the message.")
+        
+        # Explicit disposition for exactly-once delivery mode
+        if self.delivery_mode == 'exactly-once':
+            # Update the delivery disposition to ACCEPTED (tells the broker the message was processed successfully)
+            event.delivery.update(Delivery.ACCEPTED)
+            # Note: Settlement is handled by auto_settle=True (default) in MessagingHandler
+            # For at-least-once mode, MessagingHandler automatically accepts and settles when on_message returns.
 
+    def on_link_opened(self, event):
+        """Called when the remote peer opens the link, allowing us to verify negotiated settings."""
+        link = event.link
+        if link.is_receiver:
+            conn_num = self.connections.get(event.connection, "?")
+            
+            print(f"\n[Connection {conn_num}] ═══ Delivery Guarantee Negotiation ═══")
+            print(f"  Requested: {self.delivery_mode.upper()}")
+            
+            # Determine what the broker agreed to based on remote_snd_settle_mode
+            remote_mode = link.remote_snd_settle_mode
+            
+            if remote_mode == 0:  # SND_UNSETTLED
+                broker_mode = "Broker will send UNSETTLED deliveries (requires acknowledgment)"
+                compatible_modes = ['at-least-once', 'exactly-once']
+                success = self.delivery_mode in compatible_modes
+                
+            elif remote_mode == 1:  # SND_SETTLED
+                broker_mode = "Broker will send PRE-SETTLED deliveries (fire-and-forget)"
+                compatible_modes = ['at-most-once']
+                success = self.delivery_mode in compatible_modes
+                
+            elif remote_mode == 2:  # SND_MIXED
+                broker_mode = "Broker supports MIXED mode (can send both settled and unsettled)"
+                compatible_modes = ['at-least-once', 'exactly-once', 'at-most-once']
+                success = True  # Mixed mode is compatible with all delivery guarantees
+                
+            else:
+                broker_mode = f"Unknown mode ({remote_mode})"
+                success = False
+            
+            print(f"  Broker response: {broker_mode}")
+            
+            # Clear verdict
+            if success:
+                print(f"  ✓ SUCCESS: Your requested '{self.delivery_mode}' delivery guarantee is SUPPORTED")
+                if remote_mode == 2:
+                    print(f"    → The broker will send unsettled deliveries, allowing you to acknowledge them")
+            else:
+                print(f"  ✗ INCOMPATIBLE: Broker does not support '{self.delivery_mode}' mode")
+                print(f"    → Broker only supports: {', '.join(compatible_modes)}")
+                print(f"    → Messages may not have the expected delivery guarantees!")
+            print(f"═══════════════════════════════════════════════════\n")
+    
     def on_connection_opened(self, event):
         conn_num = self.connections.get(event.connection, "?")
         print(f"[Connection {conn_num}] Connection successfully opened.")
@@ -446,7 +526,18 @@ class AMQPClient(MessagingHandler):
                 
                 self.connections[connection] = conn_num  # Reuse the same connection number
                 
-                # Create receiver with the same durability options
+                # Prepare delivery mode options
+                receiver_options = []
+                if self.durable:
+                    receiver_options.append(DurableSubscription())
+                
+                # Add delivery guarantee option
+                if self.delivery_mode == 'at-most-once':
+                    receiver_options.append(AtMostOnce())
+                elif self.delivery_mode == 'at-least-once':
+                    receiver_options.append(AtLeastOnce())
+                
+                # Create receiver with the same durability and delivery mode options
                 if self.durable:
                     if self.subscription_name:
                         sub_name = f"{self.subscription_name}-{conn_num}"
@@ -459,10 +550,13 @@ class AMQPClient(MessagingHandler):
                         connection, 
                         source=self.topic,
                         name=sub_name,
-                        options=DurableSubscription()
+                        options=receiver_options
                     )
                 else:
-                    receiver = event.container.create_receiver(connection, source=self.topic)
+                    if receiver_options:
+                        receiver = event.container.create_receiver(connection, source=self.topic, options=receiver_options)
+                    else:
+                        receiver = event.container.create_receiver(connection, source=self.topic)
                 
                 # Update the receiver in the list
                 for i, r in enumerate(self.receivers):
@@ -641,6 +735,27 @@ if __name__ == '__main__':
              "RECOMMENDED for connections to swim.meteo.lt and other brokers that have issues with TLS 1.3. "
              "Use this if you experience random 'ssl/tls alert illegal parameter' errors."
     )
+    parser.add_argument(
+        '--delivery-mode', '-d',
+        choices=['at-least-once', 'at-most-once', 'exactly-once'],
+        default='at-least-once',
+        help="AMQP delivery guarantee mode (default: 'at-least-once'). "
+             "'at-least-once': Messages are acknowledged after processing, duplicates possible on failure. "
+             "'at-most-once': Messages are pre-settled (fire-and-forget), may be lost but no duplicates. "
+             "'exactly-once': Explicit acknowledgment with manual settlement, requires broker support."
+    )
+    parser.add_argument(
+        '--trace-frm',
+        action='store_true',
+        help="Enable AMQP protocol frame tracing. Shows detailed AMQP frames being sent and received. "
+             "Useful for debugging protocol-level issues. This is equivalent to setting PN_TRACE_FRM=1."
+    )
+    parser.add_argument(
+        '--trace-raw',
+        action='store_true',
+        help="Enable raw binary data tracing. Shows the raw bytes being sent and received over the wire. "
+             "Very verbose. This is equivalent to setting PN_TRACE_RAW=1."
+    )
     args = parser.parse_args()
 
     # Use parsed arguments
@@ -659,6 +774,24 @@ if __name__ == '__main__':
     insecure = args.insecure
     skip_hostname_verification = args.skip_hostname_verification
     primer_connection_enabled = args.primer_connection
+    delivery_mode = args.delivery_mode
+    
+    # Calculate trace level based on command-line flags
+    # TRACE_OFF = 0, TRACE_RAW = 1, TRACE_FRM = 2, TRACE_DRV = 4
+    trace_level = 0
+    if args.trace_raw:
+        trace_level |= 1  # TRACE_RAW
+    if args.trace_frm:
+        trace_level |= 2  # TRACE_FRM
+    
+    if trace_level > 0:
+        trace_flags = []
+        if trace_level & 1:
+            trace_flags.append("RAW")
+        if trace_level & 2:
+            trace_flags.append("FRAMES")
+        print(f"Protocol tracing enabled: {', '.join(trace_flags)}")
+        print()
     hostname = socket.gethostname()  # Get the hostname of the computer
     usernameOS = getpass.getuser()  # Get the current user's name
     base_client_id = f"Python-Client-{hostname}-{usernameOS}"  # Base client ID
@@ -670,7 +803,6 @@ if __name__ == '__main__':
         print()  # Add blank line for readability
     
     try:
-        # Enable frame-level tracing by setting trace=1
         client = AMQPClient(
             url, topic, 
             num_connections=num_connections,
@@ -685,9 +817,10 @@ if __name__ == '__main__':
             durable=durable,
             subscription_name=subscription_name,
             insecure=insecure,
-            skip_hostname_verification=skip_hostname_verification
+            skip_hostname_verification=skip_hostname_verification,
+            delivery_mode=delivery_mode
         )
-        Container(client, container_id=container_id, trace=1).run()
+        Container(client, container_id=container_id, trace=trace_level).run()
     except Exception as e:
         print("Error during container run:", e)
         sys.exit(1)
