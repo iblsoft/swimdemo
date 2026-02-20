@@ -36,13 +36,57 @@ if __name__ == '__main__':
 # Import proton and other SSL-related modules
 import ssl  # Import to check the SSL backend
 from datetime import datetime, timezone
-from proton import ConnectionException, SSLDomain, SASL, Delivery
+from proton import ConnectionException, SSLDomain, SASL, Delivery, Described, symbol, timestamp
 from proton.handlers import MessagingHandler
-from proton.reactor import Container, DurableSubscription, AtLeastOnce, AtMostOnce, Selector
+from proton.reactor import Container, DurableSubscription, AtLeastOnce, AtMostOnce, Selector, Filter
 from iwxxm_utils import extractReportInformation
 
+# RabbitMQ stream offset filter descriptor (for offset tracking feature)
+OFFSET_FILTER_SPEC = "rabbitmq:stream-offset-spec"
+
+# Duration units supported by RabbitMQ (same as x-max-age).
+# Case-sensitive: Y, M, D are uppercase; h, m, s are lowercase.
+_DURATION_SUFFIXES = {'Y', 'M', 'D', 'h', 'm', 's'}
+
+
+def _is_duration_string(s):
+    """Check if s looks like a RabbitMQ duration (e.g. '30m', '7D', '1h')."""
+    return len(s) >= 2 and s[-1] in _DURATION_SUFFIXES and s[:-1].isdigit()
+
+
+def create_stream_offset_filter(offset_spec_str):
+    """
+    Create a Filter for RabbitMQ stream offset tracking.
+
+    The AMQP type of the value determines how RabbitMQ interprets it:
+    - String "first" / "last" / "next": named offset specifications
+    - String with duration suffix (e.g. "30m"): relative time interval
+      Valid units (same as x-max-age): Y, M, D, h, m, s
+    - "timestamp=<ms>": AMQP timestamp (milliseconds since UNIX epoch)
+    - Integer: absolute stream offset
+    """
+    spec = offset_spec_str.strip()
+    spec_lower = spec.lower()
+
+    if spec_lower in ("first", "last", "next"):
+        value = spec_lower
+    elif spec_lower.startswith("timestamp="):
+        ms_str = spec[len("timestamp="):]
+        value = timestamp(int(ms_str))
+    elif spec.isdigit():
+        value = int(spec)
+    elif _is_duration_string(spec):
+        value = spec
+    else:
+        value = spec
+
+    return Filter({
+        symbol(OFFSET_FILTER_SPEC): Described(symbol(OFFSET_FILTER_SPEC), value)
+    })
+
+
 class AMQPClient(MessagingHandler):
-    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None, username=None, password=None, durable=False, subscription_name=None, insecure=False, skip_hostname_verification=False, delivery_mode='at-least-once', message_filter=None):
+    def __init__(self, url, topic, num_connections=1, base_client_id=None, outputFolderPath=None, ca_cert_path=None, client_cert_path=None, client_key_path=None, client_cert_password=None, username=None, password=None, durable=False, subscription_name=None, insecure=False, skip_hostname_verification=False, delivery_mode='at-least-once', message_filter=None, stream_offset=None):
         super(AMQPClient, self).__init__()
         self.url = url
         self.topic = topic
@@ -61,6 +105,7 @@ class AMQPClient(MessagingHandler):
         self.skip_hostname_verification = skip_hostname_verification
         self.delivery_mode = delivery_mode
         self.message_filter = message_filter
+        self.stream_offset = stream_offset
         self.using_schannel = self.is_using_schannel()
         self.connections = {}  # Map connection to connection number
         self.receivers = []  # List of all receivers
@@ -86,6 +131,10 @@ class AMQPClient(MessagingHandler):
         if self.message_filter:
             print(f"Message filter (server-side): {self.message_filter}")
             print("  → Only messages matching this filter will be delivered to the client.")
+        
+        if self.stream_offset:
+            print(f"RabbitMQ stream offset: {self.stream_offset}")
+            print("  → Using RabbitMQ offset tracking to start consuming from the specified position.")
         
         if self.insecure:
             print("WARNING: SSL certificate verification is COMPLETELY DISABLED (server cert chain and hostname).")
@@ -248,6 +297,10 @@ class AMQPClient(MessagingHandler):
                 if self.message_filter:
                     receiver_options.append(Selector(self.message_filter))
                 
+                # Add RabbitMQ stream offset filter if specified (for offset tracking feature)
+                if self.stream_offset:
+                    receiver_options.append(create_stream_offset_filter(self.stream_offset))
+                
                 # Create receiver with durability and delivery mode options
                 if self.durable:
                     # Create a unique subscription name for each connection
@@ -324,6 +377,14 @@ class AMQPClient(MessagingHandler):
                 print(f"  {key}: {value}")
         else:
             print("No application properties found in the message.")
+        
+        # Display message annotations (e.g. x-stream-offset for RabbitMQ streams)
+        if msg.annotations:
+            print("Message annotations:")
+            for key, value in msg.annotations.items():
+                print(f"  {key}: {value}")
+            # Check for x-stream-offset (key may be symbol or string)
+            stream_offset_key = symbol('x-stream-offset')
         
         # Check if the message has a payload
         if msg.body:
@@ -558,6 +619,10 @@ class AMQPClient(MessagingHandler):
                 if self.message_filter:
                     receiver_options.append(Selector(self.message_filter))
                 
+                # Add RabbitMQ stream offset filter if specified (for offset tracking feature)
+                if self.stream_offset:
+                    receiver_options.append(create_stream_offset_filter(self.stream_offset))
+                
                 # Create receiver with the same durability and delivery mode options
                 if self.durable:
                     if self.subscription_name:
@@ -778,6 +843,23 @@ if __name__ == '__main__':
              "Note: Property names are double-quoted (\\\"name\\\"), values are single-quoted ('value')."
     )
     parser.add_argument(
+        '--stream-offset',
+        help="RabbitMQ stream offset specification for the offset tracking feature. "
+             "Determines where to start consuming from a RabbitMQ stream. "
+             "Only applies when connecting to RabbitMQ streams (not regular queues). "
+             "Specification types: "
+             "'first' - from the first available message; "
+             "'last' - from the last written chunk of messages; "
+             "'next' - only new messages arriving after attachment (default when omitted); "
+             "integer - absolute offset (e.g. 12345), taken from x-stream-offset annotation; "
+             "timestamp=<ms> - AMQP timestamp in milliseconds since UNIX epoch (e.g. timestamp=1700000000000); "
+             "duration - relative time using RabbitMQ duration format: "
+             "Y (years), M (months), D (days), h (hours), m (minutes), s (seconds). "
+             "Examples: '30m' (30 min ago), '1h' (1 hour ago), '7D' (7 days ago). "
+             "Note: Y/M/D are uppercase, h/m/s are lowercase. "
+             "Each received message includes an x-stream-offset annotation that can be used to resume later."
+    )
+    parser.add_argument(
         '--trace-frm',
         action='store_true',
         help="Enable AMQP protocol frame tracing. Shows detailed AMQP frames being sent and received. "
@@ -809,6 +891,7 @@ if __name__ == '__main__':
     primer_connection_enabled = args.primer_connection
     delivery_mode = args.delivery_mode
     message_filter = args.filter
+    stream_offset = args.stream_offset
     
     # Calculate trace level for display purposes
     # Note: Environment variables were already set before importing Proton
@@ -854,7 +937,8 @@ if __name__ == '__main__':
             insecure=insecure,
             skip_hostname_verification=skip_hostname_verification,
             delivery_mode=delivery_mode,
-            message_filter=message_filter
+            message_filter=message_filter,
+            stream_offset=stream_offset
         )
         Container(client, container_id=container_id, trace=trace_level).run()
     except Exception as e:

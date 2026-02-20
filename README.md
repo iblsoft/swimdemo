@@ -93,6 +93,7 @@ You can override the default AMQP URL, topic, CA certificate, output folder, aut
 | `--skip-hostname-verification` | Optional. Skip SSL hostname/domain verification but still verify the server's certificate chain. Use this when connecting via IP address or when the domain name doesn't match the certificate. The server certificate must still be signed by a trusted CA. Client certificates will still be sent and verified by the server. |
 | `-d, --delivery-mode` | AMQP delivery guarantee mode (default: `at-least-once`). Choose from: `at-least-once`, `at-most-once`, or `exactly-once`. See the Delivery Guarantees section below for details. |
 | `-f, --filter` | SQL-like message filter expression (evaluated server-side). Filters messages based on AMQP application properties. See the Message Filtering section below for examples. |
+| `--stream-offset` | RabbitMQ stream offset specification for the offset tracking feature. Use when consuming from RabbitMQ streams to start from a specific position: `first`, `last`, `next`, numeric offset, timestamp (ms), or duration (e.g. `30m`). See `--help` for details. |
 | `--trace-frm` | Enable AMQP protocol frame tracing. Shows detailed AMQP frames being sent and received. Useful for debugging protocol-level issues. Equivalent to `PN_TRACE_FRM=1`. |
 | `--trace-raw` | Enable raw binary data tracing. Shows the raw bytes being sent and received over the wire. Very verbose. Equivalent to `PN_TRACE_RAW=1`. |
 
