@@ -7,6 +7,7 @@ The IWXXM Collect Separator is a service that monitors an input folder for meteo
 - Supports both plain XML and WMO01 encapsulated file formats
 - Automatically separates `collect:MeteorologicalBulletin` files into individual IWXXM reports
 - Preserves WMO headings and file format (WMO01 files produce WMO01 output, one report per WMO01 file)
+- Optional `--randomize` mode for METAR/SPECI/TAF value perturbation during extraction
 - Runs continuously as a SystemD user service
 - Atomic file operations ensure data integrity
 
@@ -22,6 +23,25 @@ The service monitors `/opt/SWIMWeather/var/input/upload/` for new files and:
    - Output preserves WMO01 format with original WMO headings
 
 All extracted reports are stored in `/opt/SWIMWeather/var/input/object/` with sequential counter suffixes (e.g., `filename_001.xml`, `filename_002.xml` if there were two IWXXM reports in collect:MeteorologicalBulletin).
+
+## Randomization Mode (`--randomize`)
+
+When `--randomize` is enabled, extracted IWXXM reports are modified before writing output.
+
+Current scope is limited to IWXXM report roots `METAR`, `SPECI`, and `TAF` (IWXXM namespace URI prefix `http://icao.int/iwxxm/`, any version).
+
+For `iwxxm:MeteorologicalAerodromeObservation`, the script applies:
+
+- `airTemperature`: integer offset in range `[-10, +10]`
+- `dewpointTemperature`: same integer offset as `airTemperature`
+- `qnh`: independent integer offset in range `[-10, +10]`
+- `surfaceWind/AerodromeSurfaceWind/meanWindSpeed`: independent integer offset in range `[-2, +15]`, clamped to `>= 0`
+
+For `TAF`, in `baseForecast/MeteorologicalAerodromeForecast`, the script applies:
+
+- `surfaceWind/AerodromeSurfaceWindForecast/meanWindSpeed`: independent integer offset in range `[-2, +15]`, clamped to `>= 0`
+
+If a target field is missing or non-numeric, it is skipped and processing continues.
 
 ## Installation and Setup
 
@@ -39,6 +59,15 @@ Check if the script can run using:
 
 ```bash
 python3 $METPATH/utils/iwxxm-collect-separate.py --help
+```
+
+Local test run using repository sample folders:
+
+```bash
+python3 utils/iwxxm-collect-separate.py \
+  --input test_data/extract-upload \
+  --output test_data/extract-output \
+  --randomize
 ```
 
 Create the log directory for the service and an upload directory into which e.g. a message switch such as IBL Moving Weather will be uploading data:

@@ -19,6 +19,7 @@ import os
 import sys
 import time
 import shutil
+import random
 from pathlib import Path
 from typing import List, Set, Tuple, Optional
 from xml.dom import minidom
@@ -33,7 +34,14 @@ from utils.WMOEncapsulation import WMO01Reader, WMO01Writer
 class ReportExtractor:
     """Handles extraction of IWXXM reports from collect bulletins."""
     
-    def __init__(self, input_folder: str, output_folder: str, poll_interval: float = 1.0, watch_mode: bool = False) -> None:
+    def __init__(
+        self,
+        input_folder: str,
+        output_folder: str,
+        poll_interval: float = 1.0,
+        watch_mode: bool = False,
+        randomize: bool = False
+    ) -> None:
         """
         Initialize the report extractor.
         
@@ -42,11 +50,13 @@ class ReportExtractor:
             output_folder: Path to folder where output files will be placed
             poll_interval: Seconds between folder scans (default: 1.0)
             watch_mode: If True, continuously monitor folder; if False, process once and exit
+            randomize: If True, randomize select METAR/SPECI/TAF observation values
         """
         self.input_folder: Path = Path(input_folder).resolve()
         self.output_folder: Path = Path(output_folder).resolve()
         self.poll_interval: float = poll_interval
         self.watch_mode: bool = watch_mode
+        self.randomize: bool = randomize
         self.processed_files: Set[Tuple[str, float]] = set()
         self.running: bool = True
         
@@ -66,6 +76,19 @@ class ReportExtractor:
             print("Press Ctrl+C to stop...")
         else:
             print(f"Watch mode: disabled (single pass)")
+        print(f"Randomize METAR/SPECI/TAF mode: {'enabled' if self.randomize else 'disabled'}")
+
+    def is_iwxxm_namespace(self, namespace_uri: Optional[str]) -> bool:
+        """Return True when URI points to IWXXM namespace (any version)."""
+        return bool(namespace_uri and namespace_uri.startswith("http://icao.int/iwxxm/"))
+
+    def is_iwxxm_element(self, element: Element, local_name: Optional[str] = None) -> bool:
+        """Check whether element belongs to IWXXM namespace (and optional local name)."""
+        if not self.is_iwxxm_namespace(element.namespaceURI):
+            return False
+        if local_name is not None and element.localName != local_name:
+            return False
+        return True
     
     def is_wmo01_encapsulated(self, file_path: Path) -> bool:
         """
@@ -164,7 +187,7 @@ class ReportExtractor:
         root = doc.documentElement
         
         # Check if namespace starts with http://icao.int/iwxxm/
-        if root.namespaceURI and root.namespaceURI.startswith("http://icao.int/iwxxm/"):
+        if self.is_iwxxm_namespace(root.namespaceURI):
             return True
         
         return False
@@ -222,8 +245,7 @@ class ReportExtractor:
                 # Find the IWXXM report inside (first element child with iwxxm namespace)
                 for report_child in child.childNodes:
                     if (report_child.nodeType == report_child.ELEMENT_NODE and
-                        report_child.namespaceURI and
-                        report_child.namespaceURI.startswith("http://icao.int/iwxxm/")):
+                        self.is_iwxxm_namespace(report_child.namespaceURI)):
                         
                         # Copy namespace declarations from root to ensure standalone validity
                         self.copy_namespace_declarations_except_collect(root, report_child)
@@ -232,6 +254,148 @@ class ReportExtractor:
                         break  # Only one IWXXM report per meteorologicalInformation
         
         return reports
+
+    def find_first_iwxxm_child(self, parent: Element, local_name: str) -> Optional[Element]:
+        """Find first direct child IWXXM element by local name."""
+        for child in parent.childNodes:
+            if child.nodeType != child.ELEMENT_NODE:
+                continue
+            if self.is_iwxxm_element(child, local_name):
+                return child
+        return None
+
+    def get_element_text(self, element: Element) -> Optional[str]:
+        """Read merged text value from an element."""
+        text_parts = []
+        for child in element.childNodes:
+            if child.nodeType in (child.TEXT_NODE, child.CDATA_SECTION_NODE):
+                text_parts.append(child.data)
+        if not text_parts:
+            return None
+        return "".join(text_parts).strip()
+
+    def set_element_text(self, element: Element, value: str) -> None:
+        """Replace element text content while preserving element structure."""
+        for child in list(element.childNodes):
+            if child.nodeType in (child.TEXT_NODE, child.CDATA_SECTION_NODE):
+                element.removeChild(child)
+        element.appendChild(element.ownerDocument.createTextNode(value))
+
+    def apply_integer_offset(
+        self,
+        element: Optional[Element],
+        offset: int,
+        min_value: Optional[float] = None
+    ) -> bool:
+        """
+        Apply integer offset to numeric element text.
+
+        Returns:
+            True when value was updated, False when element/value was missing or invalid.
+        """
+        if element is None:
+            return False
+
+        text = self.get_element_text(element)
+        if text is None:
+            return False
+
+        try:
+            original = float(text)
+        except ValueError:
+            return False
+
+        new_value = original + float(offset)
+        if min_value is not None:
+            new_value = max(min_value, new_value)
+
+        decimals = 0
+        stripped = text.strip()
+        if "." in stripped:
+            decimals = len(stripped.rsplit(".", 1)[1])
+
+        if decimals > 0:
+            new_text = f"{new_value:.{decimals}f}"
+        else:
+            new_text = str(int(round(new_value)))
+
+        self.set_element_text(element, new_text)
+        return True
+
+    def randomize_metar_speci_report(self, report: Element) -> None:
+        """Randomize select values in METAR/SPECI reports."""
+        if not self.randomize:
+            return
+        if not self.is_iwxxm_namespace(report.namespaceURI):
+            return
+        if report.localName not in ("METAR", "SPECI"):
+            return
+
+        # Find the first IWXXM MeteorologicalAerodromeObservation in the report.
+        observation = None
+        for candidate in report.getElementsByTagNameNS("*", "MeteorologicalAerodromeObservation"):
+            if candidate.nodeType == candidate.ELEMENT_NODE and self.is_iwxxm_namespace(candidate.namespaceURI):
+                observation = candidate
+                break
+        if observation is None:
+            return
+
+        temperature_offset = random.randint(-10, 10)
+        qnh_offset = random.randint(-10, 10)
+        wind_speed_offset = random.randint(-2, 15)
+
+        air_temperature = self.find_first_iwxxm_child(observation, "airTemperature")
+        dewpoint_temperature = self.find_first_iwxxm_child(observation, "dewpointTemperature")
+        qnh = self.find_first_iwxxm_child(observation, "qnh")
+        surface_wind = self.find_first_iwxxm_child(observation, "surfaceWind")
+        aerodrome_surface_wind = (
+            self.find_first_iwxxm_child(surface_wind, "AerodromeSurfaceWind")
+            if surface_wind is not None else None
+        )
+        mean_wind_speed = (
+            self.find_first_iwxxm_child(aerodrome_surface_wind, "meanWindSpeed")
+            if aerodrome_surface_wind is not None else None
+        )
+
+        self.apply_integer_offset(air_temperature, temperature_offset)
+        self.apply_integer_offset(dewpoint_temperature, temperature_offset)
+        self.apply_integer_offset(qnh, qnh_offset)
+        self.apply_integer_offset(mean_wind_speed, wind_speed_offset, min_value=0.0)
+
+    def randomize_taf_report(self, report: Element) -> None:
+        """Randomize select values in TAF reports."""
+        if not self.randomize:
+            return
+        if not self.is_iwxxm_namespace(report.namespaceURI):
+            return
+        if report.localName != "TAF":
+            return
+
+        base_forecast = self.find_first_iwxxm_child(report, "baseForecast")
+        meteorological_forecast = (
+            self.find_first_iwxxm_child(base_forecast, "MeteorologicalAerodromeForecast")
+            if base_forecast is not None else None
+        )
+        surface_wind = (
+            self.find_first_iwxxm_child(meteorological_forecast, "surfaceWind")
+            if meteorological_forecast is not None else None
+        )
+        aerodrome_surface_wind_forecast = (
+            self.find_first_iwxxm_child(surface_wind, "AerodromeSurfaceWindForecast")
+            if surface_wind is not None else None
+        )
+        mean_wind_speed = (
+            self.find_first_iwxxm_child(aerodrome_surface_wind_forecast, "meanWindSpeed")
+            if aerodrome_surface_wind_forecast is not None else None
+        )
+
+        wind_speed_offset = random.randint(-2, 15)
+        self.apply_integer_offset(mean_wind_speed, wind_speed_offset, min_value=0.0)
+
+    def randomize_report(self, report: Element) -> None:
+        """Apply report-specific randomization for supported IWXXM report types."""
+        self.randomize_metar_speci_report(report)
+        self.randomize_taf_report(report)
     
     def get_output_filename(self, base_filename: str, sequence_num: Optional[int] = None) -> str:
         """
@@ -396,6 +560,7 @@ class ReportExtractor:
                 
                 # Write each extracted report with WMO01 format
                 for idx, report in enumerate(reports, start=1):
+                    self.randomize_report(report)
                     # Serialize report to XML string
                     xml_str = '<?xml version="1.0" encoding="utf-8"?>\n' + report.toxml()
                     xml_bytes = xml_str.encode('utf-8')
@@ -441,6 +606,7 @@ class ReportExtractor:
             else:
                 # Extract all reports with sequence numbers
                 for idx, report in enumerate(reports, start=1):
+                    self.randomize_report(report)
                     output_filename = self.get_output_filename(file_path.name, idx)
                     self.write_report_atomically(report, output_filename)
             
@@ -449,11 +615,18 @@ class ReportExtractor:
             print(f"  Removed original bulletin file")
             
         else:
-            # Not a collect bulletin - assume it's already an individual IWXXM report
-            print(f"  Individual IWXXM report, moving to output folder")
-            final_path = self.output_folder / file_path.name
-            shutil.move(str(file_path), str(final_path))
-            print(f"  Moved: {file_path.name}")
+            if self.is_iwxxm_report(doc) and self.randomize:
+                print(f"  Individual IWXXM report, randomizing supported fields before output")
+                self.randomize_report(doc.documentElement)
+                self.write_report_atomically(doc.documentElement, file_path.name)
+                file_path.unlink()
+                print(f"  Removed original IWXXM file")
+            else:
+                # Not a collect bulletin - assume it's already an individual IWXXM report
+                print(f"  Individual IWXXM report, moving to output folder")
+                final_path = self.output_folder / file_path.name
+                shutil.move(str(file_path), str(final_path))
+                print(f"  Moved: {file_path.name}")
     
     def process_file(self, file_path: Path) -> None:
         """
@@ -597,6 +770,12 @@ Examples:
         default=1.0,
         help='Seconds between folder scans in watch mode (default: 1.0)'
     )
+
+    parser.add_argument(
+        '--randomize',
+        action='store_true',
+        help='Randomize selected METAR/SPECI/TAF observation values while extracting reports'
+    )
     
     args = parser.parse_args()
     
@@ -605,7 +784,8 @@ Examples:
             input_folder=args.input,
             output_folder=args.output,
             poll_interval=args.poll_interval,
-            watch_mode=args.watch
+            watch_mode=args.watch,
+            randomize=args.randomize
         )
         extractor.run()
     except KeyboardInterrupt:
