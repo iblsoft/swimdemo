@@ -447,6 +447,8 @@ class AMQPClient(MessagingHandler):
                 if is_technical_message and is_json_content:
                     print("Technical JSON message - displaying payload:")
                     print(decoded_payload)
+                elif self._app_property(msg, 'event_type') == 'HEARTBEAT':
+                    print("Heartbeat message - not saving the payload")
                 elif self.outputFolderPath:
                     # If output folder path is provided, save the payload to a file
                     # Detect extension from content type
