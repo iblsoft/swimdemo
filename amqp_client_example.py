@@ -336,6 +336,33 @@ class AMQPClient(MessagingHandler):
                 event.connection.close()
             sys.exit(1)
 
+    QVA_COLLECTIONS = ('qvaci_iwxxm', 'qva_probabilistic', 'qva_deterministic')
+
+    @staticmethod
+    def _app_property(msg, name):
+        """Return an application property, with or without the 'properties.' prefix."""
+        if not msg.properties:
+            return None
+        for key in (f"properties.{name}", name):
+            if msg.properties.get(key) is not None:
+                return str(msg.properties[key])
+        return None
+
+    def qva_file_name(self, msg):
+        """Return the file name for a QVA notification (topic_collection_id_volcano_id_issue_datetime), or None
+        if the message is not a QVA notification or lacks the required properties."""
+        collection_id = self._app_property(msg, 'collection_id')
+        if collection_id not in self.QVA_COLLECTIONS:
+            return None
+        volcano_id = self._app_property(msg, 'volcano_id')
+        issue_datetime = self._app_property(msg, 'issue_datetime')
+        if not (msg.subject and volcano_id and issue_datetime):
+            print(f"QVA message ({collection_id}) is missing subject, volcano_id or issue_datetime - using the default file name")
+            return None
+        name = f"{msg.subject}_{collection_id}_{volcano_id}_{issue_datetime}"
+        # Make sure the name cannot escape the output folder or contain characters illegal in file names
+        return "".join('_' if c in '/\\:*?"<>|' else c for c in name)
+
     def on_message(self, event):
         msg = event.message
         # Identify which connection received this message
@@ -399,15 +426,17 @@ class AMQPClient(MessagingHandler):
             decompressed_payload = payload
             # Detect if the payload is gzipped
             try:
+                # Binary payloads (e.g. QVA NetCDF) are not valid UTF-8 but can still be saved as they are
+                decode_errors = 'replace' if self.qva_file_name(msg) else 'strict'
                 if msg.content_encoding == "gzip":
                     if payload[:2] == b'\x1f\x8b':  # GZIP magic number
                         decompressed_payload = gzip.decompress(payload)
-                        decoded_payload = decompressed_payload.decode('utf-8')
+                        decoded_payload = decompressed_payload.decode('utf-8', errors=decode_errors)
                     else:
                         print("Payload does not appear to be gzipped, but content encoding is set to gzip!")
-                        decoded_payload = payload.decode('utf-8')
+                        decoded_payload = payload.decode('utf-8', errors=decode_errors)
                 else:
-                    decoded_payload = payload.decode('utf-8')
+                    decoded_payload = payload.decode('utf-8', errors=decode_errors)
 
                 # Check if this is a technical message (by subject prefix)
                 is_technical_message = msg.subject and msg.subject.startswith('technical')
@@ -428,7 +457,10 @@ class AMQPClient(MessagingHandler):
                     
                     # Create output file path from the folder, message subject, and the extension
                     # Check if application properties contain the required fields for filename construction
-                    if (msg.properties and 
+                    qva_name = self.qva_file_name(msg)
+                    if qva_name:
+                        filePath = os.path.join(self.outputFolderPath, qva_name)
+                    elif (msg.properties and 
                         'properties.report_status' in msg.properties and 
                         'properties.icao_location_identifier' in msg.properties and 
                         'properties.issue_datetime' in msg.properties and
